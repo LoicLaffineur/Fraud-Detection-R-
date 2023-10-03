@@ -1,0 +1,241 @@
+---
+title: "Ouverture"
+author: "Laffineur Loïc"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+Dans cette partie je ressence quelques utilisations (quand j'ai pu) des différentes méthodes que nous aurions pu utiliser sur nos données pour aller plus loin et peut-être obtenir de meilleurs résultats. Je liste aussi à la fin d'autres méthodes à essayer mais pour lesquelles je n'ai pas eu le temps de réaliser la bibliographie et le code associé.
+
+```{r library, include=FALSE}
+#Manipulation : 
+library(dplyr)
+
+#Partie visualisation :
+library(ggplot2) #Plot
+
+#Autres pour ML :
+library(caret) #Split/Search/... ;
+library(caretEnsemble)
+library(e1071) #Algo de ML
+library(factoextra)
+library(FactoMineR)
+
+library(MLmetrics) #Metriques d'évaluation
+library(ROSE) #roc.curve
+
+library(nnet)
+library(keras)
+library(RGAN)
+
+# Installation de Torch :
+torch::install_torch()
+```
+
+```{r}
+load("intro_data.RData")
+rm(tab_ML)
+
+acp=rbind(cbind(acp_test,top_sanction=y_test),acp_train) #Train + Test
+x=select(acp,-top_sanction)
+y=acp$top_sanction
+
+rm(acp_test,data_train,X_test,y_test)
+```
+
+# Méthodes de ré-échantillonnage : 
+
+En plus des méthodes déjà testées, il existe plusieurs autres méthodes de ré-échantillonnage possible qui pourraient être plus adaptées à notre problème de deséquilibre de classe dans notre cas où la séparation  de nos classes est très fines. Il existe des dizaines de méthodes différentes rien qu'en ré-échantillonnage pour traiter le problème de déséquilibre des classes (vous pourrez retrouver une grandes parties de ceux-ci présentées dans l'article qui suit ainsi que des méthodes autres que le ré-échantillonnage). 
+
+Un premier exemple est appellé le SMOTE-Tomek Links (parfois juste SMOTE-Tomek) et fait partie des méthodes mixtes d'oversampling et d'undersampling. La méthode est simple, elle consiste à réaliser une phase d'oversampling à l'aide de l'algorithme SMOTE afin de ré-équilibrer les classes puis passer par une phase d'undersampling avec le Tomek Links afin de supprimer une partie de nos individus pouvant être "problématique" tout cela de le but de créer une séparation entre nos classes plus marquée.
+
+Les méthodes de ré-échantillonnage que testées au cours de ce projet couvrent une large partie des possibles mais en aucun cas elle n'est exhaustive, il existe plein de variantes de SMOTE, plein d'algorithme mixte (SMOTE-ENN) par exemple et plein d'autres méthodes totalement différentes de celle présentées ici (CNN, ENN,...). De plus, pour la réalisation propre d'un sujet de Machine Learning avec ré-échantillonnage, nous devons aussi choisir le ratio en les classes que nous voulons car 1:1 n'est pas toujours le meilleur ratio. Ce ratio peut dépendre de plein de facteur et peut être choisi par validation en testant une gamme de ratios différents. On aurait pu aussi relancer Tomek Links en boucle jusqu'à obtenir une table dans laquelle aucun de nos individus minoritaire n'aurait pour plus proche voisin un individu majoritaire.
+
+Bibliographie : Emmanuel Remy, Vanessa Verges, Emilie Dautreme, Bruna Martin-Cabanas. Revue des principales approches de résolution du problème de déséquilibre des classes. Congrès Lambda Mu22 “Les risques au coeur des transitions” (e-congrès)-22e Congrès de Maîtrise des Risques et de Sûreté de Fonctionnement, Institut pour la Maîtrise des Risques, Oct2020, LeHavre(e-congrès),France. hal-03480661
+https://towardsdatascience.com/imbalanced-classification-in-python-smote-tomek-links-method-6e48dfe69bbc
+
+# Clustering : 
+
+Le principe général du clustering (comme expliqué dans la partie 0 d'introduction au ML) est de découvrir des structures dans nos données. Les deux algorithmes les plus connus sont les K-means et le Clustering Hierarchique Ascendant , nous allons donc essayer de les mettre en place sur nos données. (cf. Partie 0 pour la présentation des algorithmes).
+
+## K-means :
+
+```{r, K-means,echo=FALSE}
+# Estimation du nombre de cluster a prendre en compte
+fviz_nbclust(x,
+  FUNcluster = kmeans,
+  method = "silhouette",
+  k.max = 10,
+  verbose = T,
+  print.summary = TRUE)
+
+# son coefficient de silhouette est la différence entre la distance moyenne avec les points du même groupe que lui (cohésion) et la distance moyenne avec les points des autres groupes voisins (séparation). Si cette différence est négative, le point est en moyenne plus proche du groupe voisin que du sien : il est donc mal classé. À l'inverse, si cette différence est positive, le point est en moyenne plus proche de son groupe que du groupe voisin : il est donc bien classé.
+# 
+# Le coefficient de silhouette proprement dit est la moyenne du coefficient de silhouette pour tous les points. 
+
+fviz_nbclust(x,
+  FUNcluster = kmeans,
+  method = "wss",
+  k.max = 10,
+  verbose = T,
+  print.summary = TRUE)
+
+
+# The within-cluster sum of squares is a measure of the variability of the observations within each cluster. In general, a cluster that has a small sum of squares is more compact than a cluster that has a large sum of squares. Clusters that have higher values exhibit greater variability of the observations within the cluster.
+
+# On utilise K-means avec l'info obtenue par silhouette : 
+set.seed(12)
+res_sil=kmeans(x,centers=2,iter.max = 20,nstart=2)
+
+plot(x[,1],x[,2],col=res_sil$cluster)
+points(res_sil$centers,col="green",pch=1,lwd=2)
+
+for(i in 1:2){
+  print(table(y[c(as.integer(names(res_sil$cluster[res_sil$cluster==i])))]))
+}
+
+# On utilise K-means avec l'info obtenue par wss : 
+set.seed(12)
+res_wss=kmeans(x,centers=3,iter.max = 20,nstart=3)
+
+plot(x[,1],x[,2],col=res_wss$cluster)
+points(res_wss$centers,col="red",pch=1,lwd=2)
+
+for(i in 1:3){
+  print(table(y[c(as.integer(names(res_wss$cluster[res_wss$cluster==i])))]))
+}
+```
+
+Bibliographie : https://support.minitab.com/en-us/minitab/21/help-and-how-to/statistical-modeling/multivariate/how-to/cluster-k-means/interpret-the-results/all-statistics-and-graphs/#within-cluster-sum-of-squares
+https://fr.wikipedia.org/wiki/Silhouette_(clustering)
+
+## Clustering Hierarchique Ascendant : 
+
+```{r, HCA,echo=FALSE}
+for(i in 2:10){
+  complt=HCPC(x,nb.clust=i, iter.max = 20,graph =F,method = "complete")
+  plot(complt,choice='tree',rect=F)
+  legend("bottomright",legend=table(complt$data.clust$clust),pch=1,col=rainbow(complt$data.clust$clust))
+}
+```
+
+##  Carte de Kohonen : 
+
+Les cartes de Kohonen sont, contrairement aux deux algorithmes précédents, une méthode d'apprentissage non-supervisée à l'aide des réseaux de neurones. 
+
+Bibliographie : https://fr.wikipedia.org/wiki/Carte_autoadaptative
+http://www.xavierdupre.fr/app/mlstatpy/helpsphinx/c_clus/kohonen.html
+https://meritis.fr/cartes-topologiques-de-kohonen/
+
+# Apprentissage semi-supervisé : 
+
+L'apprentissage semi-supervisé est une troisième catégorie entre l'apprentissage supervisé et non-supervisé. L'apprentissage se fait sur un jeu de donnée partiellement étiqueté ce qui nous permettrait d'utiliser l'ensemble de la base donnée en retirant les labels de nos données non controlée. 
+
+# PMC complexe avec Keras : 
+
+L'une des bibliothèque les plus utilisées et les performantes (sous R et sous Python d'ailleurs) pour programmer des réseaux de neurones profonds est Keras. Elle permet de coder couche par couche notre réseau de neurone et d'avoir le choix sur une grande partie des paramètres telle que l'activation, le nombre de couche, le nombre de neurone, l'algorithme d'optimisation final, la fonction de coût,... bref, toute l'architecture de notre réseau de neurone contrairement au library telle que nnet qui ne nous permettent que très peu de choses. Là où nnet ne nous permet que de créer un réseau de neurone à une couche cachée, Keras nous permet de réaliser un PMC (Perceptron MultiCouche) avec autant de couche cachée que nous voulons (dans la limite des capacités de nos données car les réseaux de neurones necessitent une grosse quantité de données).
+
+```{r, PMC_keras}
+set.seed(12)
+#Liste des modèles :
+start_time=Sys.time()
+
+model_data=keras_model_sequential()
+model_data %>% layer_dense(units = 1024, activation = "ReLu",input_shape = dim(data_train))
+model_data %>% layer_dropout(rate = 0.3)
+model_data %>% layer_dense(units = 512, activation = "ReLu")
+model_data %>% layer_dense(units = 256, activation = "ReLu")
+model_data %>% layer_dropout(rate = 0.3)
+model_data %>% layer_dense(units = 128, activation = "ReLu")
+model_data %>% layer_dense(units = 64, activation = "ReLu")
+model_data %>% layer_dense(units = 32, activation = "ReLu")
+model_data %>% layer_dropout(rate = 0.3)
+model_data %>% layer_dense(units = 1, activation = "sigmoid")
+model_data
+
+model_data%>%compile(optimizer="adam",loss="hinge",metric="auc")
+
+fit %>% model_data%>% fit(x=,y=,validation_split=0.1,epochs=20,verbose=1)
+
+model_data%>%evaluate(x=,y=)
+
+pred=model_data%>%predict(x_test)
+
+end_time=Sys.time()
+end_time-start_time
+```
+
+# Génération de données avec réseau de neurone : 
+
+En plus de nous permettre de mettre de place des algorithmes permettant la classification, la régression ou du clustering, les réseaux de neurones peuvent aussi être utilisés pour générer des données notamment grâce à trois types de réseaux.
+
+Les GAN (Generative Adversial Network) qui se constituent de deux blocs mis en concurrence : le générateur qui a pour but de créer des données proches des données "réelles" à l'aide d'un bruit généré selon une loi de probabilité donnée, et le discriminateur qui est un classifieur ayant pour but de distinguer les vraies données et celles créées par le générateur. L'entrainement se fait de manière à ce que l'un perde lorsque l'autre gagne et vice-versa. 
+
+Les auto-encodeurs variationnels, ou VAE (Variational Auto Encoder), qui se composent eux aussi de deux parties mais à la génération à lieu de manière différente : la première partie est une partie de compression des données réaliser par l'encodeur, son rôle peut être rapproché de ce que fait une ACP, dans laquelle notre algorithme apprend la structure de nos données et la compresse pour passer à une dimension plus faible, la deuxième partie est une partie de décodage ou notre deuxième réseau de neurone essaye de retrouver la données d'entrée (avant encodage) à partir de la donnée encodée.  
+
+Il y a une troisième catégorie plus poussée qui existe maintenant pour faire de la génération de données via des réseaux de neurones : les transformers. Ces reseaux de neurones très poussés sont notamment à la base de certains gros projet tel que ChatGPT.
+
+## GAN
+
+```{r}
+set.seed(12)
+
+start_time=Sys.time()
+
+# Données "réelles" :
+data_acp <- filter(acp_train,top_sanction==0)[,-ncol(acp_train)]
+
+# Définition du transformateur pour donner au GAN
+transformer_acp <- data_transformer$new()
+
+# Entrainement du transformateur :
+transformer_acp$fit(data_acp)
+
+# Données transformées :
+transformed_data_acp <- transformer_acp$transform(data_acp)
+
+# Définition du GAN : 
+# 1 - Définition du Générateur avec : 
+gene_acp = Generator(noise_dim = ncol(transformed_data_acp), data_dim = ncol(transformed_data_acp), hidden_units = c(1024),dropout_rate = 0.3)
+
+# 2 - Définition du Discriminateur avec : 
+discri_acp = Discriminator(data_dim = ncol(transformed_data_acp),hidden_units = c(1024), dropout_rate = 0.3, sigmoid = T)
+
+# 3 - Entrainement du GAN
+trained_gan_acp <- gan_trainer(data=transformed_data_acp,  noise_dim=ncol(transformed_data_acp),data_type = "tabular",
+                               generator = gene_acp, discriminator = discri_acp,
+                               epochs=150, eval_dropout = T,
+                               synthetic_examples = sum(acp_train$top_sanction==1)-sum(acp_train$top_sanction==0),
+                               plot_progress = T, plot_interval = "epoch")
+
+# Données synthétiques créées par le GAN :
+synthetic_data_acp <- sample_synthetic_data(trained_gan_acp,transformer = transformer_acp)
+
+end_time=Sys.time()
+end_time-start_time #Time difference of 1.376197 mins
+
+# Plot the results
+GAN_update_plot(data = data_acp, synth_data = synthetic_data_acp, main = "Visualisation des données réellese et synthétiques générées par le GAN")
+
+rm(gene_acp,end_time,start_time,discri_acp,x,acp,acp_train,data_acp,transformer_acp,transformed_data_acp,y,Erreur,trained_gan_acp)
+```
+
+Bibliographie : https://github.com/mneunhoe/RGAN
+                https://cran.r-project.org/web/packages/RGAN/index.html
+                
+# Méthode d'optimisation des hyperparamètes : 
+
+En plus des idées sur les différents algorithmes de ré-échantillonnage ou les types d'apprentisseurs qu'on aurait pu utiliser on peut aussi se poser la question de l'efficacité de la Random Search pour l'optimisation de mes hyperparamètres car plusieurs de nos modèle overfit presque systématiquement (randomforest et Xgboost). 
+
+D'autres méthodes d'optimisation des hyperparamètres peuvent être utilisées et plus efficace pour trouver des paramètres maximisant la généralisation de nos modèles comme par exemple l'optimisation Bayésienne ou les algorithmes génétiques qui sont des méthodes d'optimisation de plus en plus utilisées.
+
+# Autres idées : 
+
+Plusieurs autres idées pourraient être essayée pour notre sujet notamment revoir le choix des métriques d'évaluation, d'optimisation,... . En effet, le choix du ROC et de l'$AUC_{ROC}$ n'est pas forcement le plus pertinent surtout qu'il est contesté par certains dans les cas de données deséquilibrées au profit de la courbe Precision-Recall et de son AUC mais celle-ci ayant une interprétation bien moins claire de l'$AUC_{ROC}$ je n'ai pas souhaité l'utilisée.
+
+Une autre idée pourrait être la détéction d'outlier à l'aide d'algorithme tels que la Random Forest ou les K-NN mais elle a un peu été explorée (par Martial et Lyvia notamment). 
+
+On aurait aussi pu penser à utiliser les méthodes d'agregation de prédicteur afin de combiner les forces de chacun. Certains algorithmes tel que EWA (Exponentially Weighted Aggregation) ou BOA (Bernstein Online Aggregation) par exemple permettent de faire cela.
+
+La dernière idée à laquelle je peux penser et qui pourrait être utilisable ici est le Transfert Learning. On entrainerait un premier modèle sur des données "proches" (donc pour une tâche proche de la nôtre), et on completerait son apprentissage sur nos données en pensant bien à refaire la partie d'optimisation des hyperparamètre de notre modèle sur nos données.  
+

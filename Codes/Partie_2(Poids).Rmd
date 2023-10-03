@@ -1,0 +1,415 @@
+---
+title: "Avec poids"
+author: "Loïc LAFFINEUR"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+L'objectif de cette partie est de voir si des poids sur nos classes améliore les resultats de nos predicteurs. L'idée est de pénaliser l'algorithme plus fort s'il se trompe sur la prédiction de la classe minoritaire plutot que sur celle de la classe majoritaire. La valeur du poids mis sur les classes est très influente sur la qualité de cette méthode nous allons juste en tester 1 seul : un poids inversement proportionnel au deséquilibre de nos classe. On mettra un poids 1 aux élément de la classe majoritaire et un poids égale à Taille_majo/Taille_mino à nos élément de la classe minoritaire. 
+
+Certains algorithmes que nous avons tester en laissant les poids à 1:1 dans la partie sans ré-échantillonnage ne sont pas adaptés à la fixation des poids de classes sur R. C'est notamment le cas des K-nn et du Naive Bayes.
+
+```{r library, include=FALSE}
+#Manipulation : 
+library(dplyr)
+
+#Modèles de ML :
+library(randomForest) #RF ;
+library(rpart) #CART ;
+library(xgboost) #XGBoost ;
+library(glmnet) #reg log
+library(class) #knn
+library(naivebayes)
+library(ranger)#rf
+library(kernlab)#svmpoly svmrad
+library(e1071) #Algo de ML
+
+#Autres pour ML :
+library(caret) #Split/Search/... ;
+library(caretEnsemble)
+
+library(MLmetrics) #Metriques d'évaluation
+library(ROSE)
+```
+
+```{r, mat_model_name}
+load("intro_data.RData")
+rm(tab_ML)
+model_names=c("Regression logistique","SVM RBF","SVM Polynomial","CART","Ranger","RandomForest","XGBoost")
+
+k=as.numeric(table(data_train$top_sanction)[2]/table(data_train$top_sanction)[1])
+poids = ifelse(data_train$top_sanction==0,k,1);rm(k)
+```
+
+```{r, procedure pour CV}
+data_train$nb_phies=as.numeric(data_train$nb_phies)
+data_train$active_tout2018_1=as.numeric(data_train$active_tout2018_1)-1
+data_train$top_sanction=as.factor(make.names(data_train$top_sanction))
+
+X_test$active_tout2018_1=as.numeric(X_test$active_tout2018_1)-1
+y_test=as.factor(make.names(y_test))
+
+acp_train$top_sanction=as.factor(make.names(acp_train$top_sanction))
+
+#Création de la base de donnée en bonne forme : 
+#Train : 
+x_data=data.matrix(data_train[,-ncol(data_train)])
+x_acp=data.matrix(acp_train[,-ncol(acp_train)])
+
+#Test : 
+test_data=data.matrix(X_test); test_data[,1]=test_data[,1]-1
+test_acp=data.matrix(acp_test)
+
+#Nos folds pour la CV :
+set.seed(12)
+folds_data=createFolds(data_train$top_sanction,k=5)
+folds_acp=createFolds(acp_train$top_sanction,k=5)
+
+#Règle de CV : 
+Control_data <- trainControl(method = "cv", number = 5, index=folds_data, search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F)
+
+Control_acp <- trainControl(method = "cv", number = 5, index=folds_acp, search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F)
+```
+
+```{r, entrainement des modèles avec CV,warning=F}
+set.seed(12)
+#Liste des modèles :
+start_time=Sys.time()
+model_list_poids <- caretList(trControl = Control_data, 
+                        tuneList = list(
+                          glm=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="glmnet", tuneLength=300,
+                                             metric="ROC", weights=poids),
+                          svm_rad=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="svmRadial", tuneLength=300,
+                                             metric="ROC", 
+                                             class.weights = c("X0"=max(poids),"X1"=min(poids))),
+                          svm_poly=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="svmPoly", tuneLength=300,
+                                             metric="ROC",
+                                             class.weights = c("X0"=max(poids),"X1"=min(poids))),
+                          rpart=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="rpart2", tuneLength=300,
+                                             metric="ROC", weights=poids),
+                          ranger=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="ranger", tuneLength=500,
+                                             metric="ROC",verbose=F,
+                                             class.weights = c("X0"=max(poids),"X1"=min(poids))),
+                          rf=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="rf", tuneLength=500,
+                                             metric="ROC", weights=poids),
+                          xgbTree=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="xgbTree", tuneLength=500,
+                                             metric="ROC",verbosity=0, weight=poids)
+                          ),
+                        continue_on_fail = FALSE, preProcess = c("center", "scale","nzv"))
+end_time=Sys.time()
+end_time-start_time #Time difference of 39.33172 mins
+
+set.seed(12)
+#Liste des modèles :
+start_time=Sys.time()
+model_list_poids_acp <- caretList(trControl = Control_acp, 
+                        tuneList = list(
+                          glm=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="glmnet", tuneLength=300,
+                                             metric="ROC", weights=poids),
+                          svm_rad=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="svmRadial", tuneLength=300,
+                                             metric="ROC", 
+                                             class.weights = c("X0"=max(poids),"X1"=min(poids))),
+                          svm_poly=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="svmPoly", tuneLength=300,
+                                             metric="ROC",
+                                             class.weights = c("X0"=max(poids),"X1"=min(poids))),
+                          rpart=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="rpart2", tuneLength=300,
+                                             metric="ROC", weights=poids),
+                          ranger=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="ranger", tuneLength=500,
+                                             metric="ROC",verbose=F,
+                                             class.weights = c("X0"=max(poids),"X1"=min(poids))),
+                          rf=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="rf", tuneLength=500,
+                                             metric="ROC", weights=poids),
+                          xgbTree=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="xgbTree", tuneLength=500,
+                                             metric="ROC",verbosity=0, weight=poids)
+                          ),
+                        continue_on_fail = FALSE, preProcess = c("center", "scale","nzv"))
+end_time=Sys.time()
+end_time-start_time #Time difference of 35.52316 mins
+
+rm(end_time,start_time)
+```
+
+# Régression Logistique :
+
+```{r}
+Erreur(predict(model_list_poids$glm,x_data),data_train$top_sanction)
+Erreur(predict(model_list_poids$glm,test_data),y_test)
+Erreur(predict(model_list_poids_acp$glm,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_poids_acp$glm,test_acp),y_test)
+```
+
+On peut tout d'abord remarqué que l'utilisation des poids à un effet de "rééquilibrage" des classes. Les modèles de régressions linéaire prédisent la classe X0 plus souvent qu'ils ne le faisaient sans les poids, c'était un des objectifs en ajoutant les poids.
+
+Au delà de leur capacité à prédire ou non la classe X0 nos modèles sont toujours aussi mauvais avec un F1-Score proche de 0.5 et un AUC inférieur à 0.6 aussi. Ils sont tous les deux dans des cas de sous-apprentissage encore une fois.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list_poids$glm,x_data),col=col[1],main="ROC Curve régression logistique")
+roc.curve(y_test,predict(model_list_poids$glm,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_poids_acp$glm,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_poids_acp$glm,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r}
+### Importance des variables : 
+barplot(as.matrix(varImp(model_list_poids$glm)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_poids_acp$glm)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+Comme pour la partie sans rééchantillonnage les PC5, PC7 et PC9 ressortent le plus avec les variables mnt_rbs_m, nb_decompte_sup180 et mnt_tot_rbs_grpe_ge.
+
+# SVM : 
+
+## RBF : 
+
+```{r}
+Erreur(predict(model_list_poids$svm_rad,x_data),data_train$top_sanction)
+Erreur(predict(model_list_poids$svm_rad,test_data),y_test)
+Erreur(predict(model_list_poids_acp$svm_rad,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_poids_acp$svm_rad,test_acp),y_test)
+```
+
+Dans le cas du SVM avec noyau RBF les résultats restent très proches de ceux sans les poids de classes, c'est un peu bizarre il faudrait regarder s'il n'y a pas une erreur sur l'assignation des poids sur les classes pour cette méthode. Très peu d'individus sont prédit en tant qu'appartenant à la classe X0, ces prédicteurs ne nous interessent pas en plus de sous-apprendre.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list_poids$svm_rad,x_data),col=col[1],main="ROC Curve SVM avec noyau RBF")
+roc.curve(y_test,predict(model_list_poids$svm_rad,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_poids_acp$svm_rad,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_poids_acp$svm_rad,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_poids$svm_rad)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_poids_acp$svm_rad)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+## Polynomial : 
+
+```{r}
+Erreur(predict(model_list_poids$svm_poly,x_data),data_train$top_sanction)
+Erreur(predict(model_list_poids$svm_poly,test_data),y_test)
+Erreur(predict(model_list_poids_acp$svm_poly,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_poids_acp$svm_poly,test_acp),y_test)
+```
+
+Nos SVM avec noyaux Polynomiaux ne sont pas du tout intéressants, ils ont de très mauvais résultats en train, en test, sur le F1-score, sur l'AUC et ne prédisent que très peu la classe X0. 
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list_poids$svm_poly,x_data),col=col[1],main="ROC Curve SVM avec noyau Polynomial")
+roc.curve(y_test,predict(model_list_poids$svm_poly,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_poids_acp$svm_poly,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_poids_acp$svm_poly,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_poids$svm_poly)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_poids_acp$svm_poly)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+# Decision Tree :
+
+```{r}
+Erreur(predict(model_list_poids$rpart,x_data),data_train$top_sanction)
+Erreur(predict(model_list_poids$rpart,test_data),y_test)
+Erreur(predict(model_list_poids_acp$rpart,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_poids_acp$rpart,test_acp),y_test)
+```
+
+Encore une fois au niveau des arbres de décision nous faisons face à un sur-apprentissage qui s'observe notamment sur les précision et les recall de nos modèles avec une perte de 0.20 sur chacune de ces metriques.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list_poids$rpart,x_data),col=col[1],main="ROC Curve CART")
+roc.curve(y_test,predict(model_list_poids$rpart,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_poids_acp$rpart,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_poids_acp$rpart,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, plot_tree, fig.height=8}
+plot(model_list_poids$rpart$finalModel,uniform=T)
+text(model_list_poids$rpart$finalModel)
+
+plot(model_list_poids_acp$rpart$finalModel,uniform=T)
+text(model_list_poids_acp$rpart$finalModel)
+```
+
+```{r, importance_tree}
+barplot(as.matrix(varImp(model_list_poids$rpart)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_poids_acp$rpart)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+# Random Forest : 
+
+## randomForest : 
+
+```{r}
+Erreur(predict(model_list_poids$rf,x_data),data_train$top_sanction)
+Erreur(predict(model_list_poids$rf,test_data),y_test)
+Erreur(predict(model_list_poids_acp$rf,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_poids_acp$rf,test_acp),y_test)
+```
+
+Nos RandomForest overfittent avec de meilleures performances observées sur celui entrainé sur les données sans l'ACP.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list_poids$rf,x_data),col=col[1],main="ROC Curve avec randomForest")
+roc.curve(y_test,predict(model_list_poids$rf,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_poids_acp$rf,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_poids_acp$rf,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_poids$rf)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_poids_acp$rf)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+## Ranger : 
+
+```{r}
+Erreur(predict(model_list_poids$ranger,x_data),data_train$top_sanction)
+Erreur(predict(model_list_poids$ranger,test_data),y_test)
+Erreur(predict(model_list_poids_acp$ranger,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_poids_acp$ranger,test_acp),y_test)
+```
+
+Le ranger sans ACP sur-apprend mais ici la classe 0 est moins prédite qu'avec le package randomForest ce qui rend notre prédicteur moins intéressant pour notre étude. Etonnamment celui sur la table sans ACP sous-apprend.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list_poids$ranger,x_data),col=col[1],main="ROC Curve avec Ranger")
+roc.curve(y_test,predict(model_list_poids$ranger,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_poids_acp$ranger,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_poids_acp$ranger,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+# #Importance des variables
+# barplot(as.matrix(varImp(model_list_poids$ranger)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+# 
+# barplot(as.matrix(varImp(model_list_poids_acp$ranger)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+# XGBoost :
+
+```{r}
+Erreur(predict(model_list_poids$xgbTree,x_data),data_train$top_sanction)
+Erreur(predict(model_list_poids$xgbTree,test_data),y_test)
+Erreur(predict(model_list_poids_acp$xgbTree,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_poids_acp$xgbTree,test_acp),y_test)
+```
+
+Encore une fois les résulats que nous obtenons ici sont plutot mauvais avec une tendance de nos modèles à sous-apprendre et une grosse quantité d'erreur sur les prédictions de la classe 0 comme le montre la Precision.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list_poids$xgbTree,x_data),col=col[1],main="ROC Curve XGBoost")
+roc.curve(y_test,predict(model_list_poids$xgbTree,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_poids_acp$xgbTree,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_poids_acp$xgbTree,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_poids$xgbTree)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_poids_acp$xgbTree)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+# Comparaison des modèles entre eux : 
+
+```{r, prediction sur le test}
+print("Sans ACP : ")
+print(model_names[1])
+Erreur(predict(model_list_poids$glm,test_data),y_test)
+print(model_names[2])
+Erreur(predict(model_list_poids$svm_rad,test_data),y_test)
+print(model_names[3])
+Erreur(predict(model_list_poids$svm_poly,test_data),y_test)
+print(model_names[4])
+Erreur(predict(model_list_poids$rpart,test_data),y_test)
+print(model_names[5])
+Erreur(predict(model_list_poids$ranger,test_data),y_test)
+print(model_names[3])
+Erreur(predict(model_list_poids$rf,test_data),y_test)
+print(model_names[7])
+Erreur(predict(model_list_poids$xgbTree,test_data),y_test)
+
+col=rainbow(9)
+roc.curve(y_test,predict(model_list_poids$glm,test_data),col=col[1],main="ROC Curve")
+roc.curve(y_test,predict(model_list_poids$svm_rad,test_data),col=col[2],add.roc = T)
+roc.curve(y_test,predict(model_list_poids$svm_poly,test_data),col=col[3],add.roc = T)
+roc.curve(y_test,predict(model_list_poids$rpart,test_data),col=col[4],add.roc = T)
+roc.curve(y_test,predict(model_list_poids$ranger,test_data),col=col[5],add.roc = T)
+roc.curve(y_test,predict(model_list_poids$rf,test_data),col=col[6],add.roc = T)
+roc.curve(y_test,predict(model_list_poids$xgbTree,test_data),col=col[7],add.roc = T)
+legend('bottomright',legend=model_names,col=col,lwd=2)
+
+for(i in 1:5){print("")}
+
+print("ACP : ")
+print(model_names[1])
+Erreur(predict(model_list_poids_acp$glm,test_acp),y_test)
+print(model_names[2])
+Erreur(predict(model_list_poids_acp$svm_rad,test_acp),y_test)
+print(model_names[3])
+Erreur(predict(model_list_poids_acp$svm_poly,test_acp),y_test)
+print(model_names[4])
+Erreur(predict(model_list_poids_acp$rpart,test_acp),y_test)
+print(model_names[5])
+Erreur(predict(model_list_poids_acp$ranger,test_acp),y_test)
+print(model_names[6])
+Erreur(predict(model_list_poids_acp$rf,test_acp),y_test)
+print(model_names[7])
+Erreur(predict(model_list_poids_acp$xgbTree,test_acp),y_test)
+
+roc.curve(y_test,predict(model_list_poids_acp$glm,test_acp),col=col[1],main="ROC Curve avec ACP")
+roc.curve(y_test,predict(model_list_poids_acp$svm_rad,test_acp),col=col[2],add.roc = T)
+roc.curve(y_test,predict(model_list_poids_acp$svm_poly,test_acp),col=col[3],add.roc = T)
+roc.curve(y_test,predict(model_list_poids_acp$rpart,test_acp),col=col[4],add.roc = T)
+roc.curve(y_test,predict(model_list_poids_acp$ranger,test_acp),col=col[5],add.roc = T)
+roc.curve(y_test,predict(model_list_poids_acp$rf,test_acp),col=col[6],add.roc = T)
+roc.curve(y_test,predict(model_list_poids_acp$xgbTree,test_acp),col=col[7],add.roc = T)
+legend('bottomright',legend=model_names,col=col,lwd=2)
+
+rm(col,i)
+```

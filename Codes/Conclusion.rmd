@@ -1,0 +1,293 @@
+---
+title: "Conclusion"
+author: "Laffineur Loïc"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+library(MLmetrics)
+library(ROSE)
+library(caret)
+library(dplyr)
+library(knitr)
+```
+
+# Chargement des données :
+
+```{r}
+load("ss_reech_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_names,test_acp,test_data,Erreur,y_test,x_data,x_acp)
+
+load("poids_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_names,test_acp,test_data,Erreur,y_test,x_data,x_acp,poids)
+
+load("under_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_names,test_acp,test_data,Erreur,y_test,x_under,x_under_acp)
+
+load("over_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_names,test_acp,test_data,Erreur,y_test,x_over,x_over_acp)
+
+load("smote3_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_names,test_acp,test_data,Erreur,y_test,x_smote,x_smote_acp)
+
+load("smote5_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_names,test_acp,test_data,Erreur,y_test,x_smote,x_smote_acp)
+
+load("smote10_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_names,test_acp,test_data,Erreur,y_test,x_smote,x_smote_acp)
+
+load("adasyn3_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_names,test_acp,test_data,Erreur,y_test,x_adasyn,x_adasyn_acp)
+
+load("adasyn5_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_names,test_acp,test_data,Erreur,y_test,x_adasyn,x_adasyn_acp)
+
+load("adasyn10_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_names,test_acp,test_data,Erreur,y_test,x_adasyn,x_adasyn_acp)
+
+load("rose_data.RData")
+rm(Control_acp,Control_data,folds_acp,folds_data,x_rose,x_rose_acp,test_acp,test_data,X_test,acp_test,Erreur,y_test,acp_train,data_train,model_names)
+
+load("tl_data.RData")
+rm(Control_acp,Control_data,folds_acp,folds_data,x_tl,x_tl_acp,test_acp,test_data,X_test,acp_test,Erreur,y_test)
+
+load("deep_data.RData")
+rm(Control_list,Control_list_acp,folds_list,folds_list_acp,data_names,poids) #Tout sauf list model et list_data et ce qui peut suppr des trucs d'avant
+
+rm(data_train,under_train,over_train,smote_train10,smote_train5,smote_train3,adasyn_train10,adasyn_train5,adasyn_train3,rose_train,tl_train)
+rm(acp_train,under_acp,over_acp,smote_acp10,smote_acp5,smote_acp3,adasyn_acp10,adasyn_acp5,adasyn_acp3,rose_acp,tl_acp)
+
+list_model=list(ss_reech=model_list,poids=model_list_poids,undersampling=model_list_under,oversampling=model_list_over,smote3=model_list_smote3,smote5=model_list_smote5,smote10=model_list_smote10,adasyn3=model_list_adasyn3,adasyn5=model_list_adasyn5,adasyn10=model_list_adasyn10,rose=model_list_rose,tl=model_list_tl)
+
+list_model_acp=list(ss_reech=model_list_acp,poids=model_list_poids_acp,undersampling=model_list_under_acp,oversampling=model_list_over_acp,smote3=model_list_smote_acp3,smote5=model_list_smote_acp5,smote10=model_list_smote_acp10,adasyn3=model_list_adasyn_acp3,adasyn5=model_list_adasyn_acp5,adasyn10=model_list_adasyn_acp10,rose=model_list_rose_acp,tl=model_list_tl_acp)# Créer une list de model list
+
+rm(model_list,model_list_acp,model_list_poids,model_list_poids_acp,model_list_under,model_list_under_acp,model_list_over,model_list_over_acp,model_list_smote3,model_list_smote_acp3,model_list_smote5,model_list_smote_acp5,model_list_smote10,model_list_smote_acp10,model_list_adasyn3,model_list_adasyn_acp3,model_list_adasyn5,model_list_adasyn_acp5,model_list_adasyn10,model_list_adasyn_acp10,model_list_rose,model_list_rose_acp,model_list_tl,model_list_tl_acp)
+
+model_names[8]="Random Forest"
+```
+
+# Résumé des données :
+
+```{r}
+Imbalance=matrix(NA,ncol=3,nrow=11)
+colnames(Imbalance)=c("Ratio","# Classe Majoritaire (X1)","# Classe Minoritaire (X0)")
+rownames(Imbalance)=c("Sans Rééchantillonnage","Undersampling","Oversampling","SMOTE3","SMOTE5","SMOTE10","ADASYN3","ADASYN5","ADASYN10","ROSE","Tomek Links")
+
+for(i in 1:nrow(Imbalance)){
+  Imbalance[i,1]=round(table(list_data[[i]]$top_sanction)[2]/table(list_data[[i]]$top_sanction)[1],digits=2)
+  Imbalance[i,2]=round(table(list_data[[i]]$top_sanction)[2],digits=0)
+  Imbalance[i,3]=round(table(list_data[[i]]$top_sanction)[1],digits=0)
+}
+
+kable(Imbalance,format = "html")
+```
+
+# Résumé des résultats : 
+
+## Metrique AUC : 
+
+```{r, sans acp}
+Result=matrix(NA,ncol=length(model_names)+1,nrow=nrow(Imbalance)+1)
+colnames(Result)=c(model_names,"NNET")
+rownames(Result)=c("Sans Rééchantillonnage","Poids","Undersampling","Oversampling","SMOTE3","SMOTE5","SMOTE10","ADASYN3","ADASYN5","ADASYN10","ROSE","Tomek Links")
+
+for(reech in 1:nrow(Result)){ #Je parcours les model_liste
+  for(model in 1:(ncol(Result)-1)){
+    if(reech==2){
+      if(model==1){Result[reech,model]=Erreur(predict(list_model[[reech]][[model]],X_test),y_test,conf=F)[5]}
+      else if(model==2 || model==3){Result[reech,model]=NA}
+      else{
+        Result[reech,model]=Erreur(predict(list_model[[reech]][[model-2]],X_test),y_test,conf=F)[5]
+      }
+    }
+    else{
+      Result[reech,model]=Erreur(predict(list_model[[reech]][[model]],X_test),y_test,conf=F)[5]
+    }
+  }
+}
+for(i in 1:nrow(Result)){Result[i,ncol(Result)]=Erreur(predict(model_list_nnet[[i]],X_test),y_test,conf=F)[5]}
+
+kable(round(Result,digits=3),format = "html")
+```
+
+```{r, avec acp}
+Result_acp=matrix(NA,ncol=length(model_names)+1,nrow=nrow(Imbalance)+1)
+colnames(Result_acp)=c(model_names,"NNET")
+rownames(Result_acp)=c("Sans Rééchantillonnage","Poids","Undersampling","Oversampling","SMOTE3","SMOTE5","SMOTE10","ADASYN3","ADASYN5","ADASYN10","ROSE","Tomek Links")
+
+for(reech in 1:nrow(Result_acp)){ #Je parcours les model_liste
+  for(model in 1:(ncol(Result_acp)-1)){
+    if(reech==2){
+      if(model==1){Result_acp[reech,model]=Erreur(predict(list_model_acp[[reech]][[model]],acp_test),y_test,conf=F)[5]}
+      else if(model==2 || model==3){Result_acp[reech,model]=NA}
+      else{
+        Result_acp[reech,model]=Erreur(predict(list_model_acp[[reech]][[model-2]],acp_test),y_test,conf=F)[5]
+      }
+    }
+    else{
+      Result_acp[reech,model]=Erreur(predict(list_model_acp[[reech]][[model]],acp_test),y_test,conf=F)[5]
+    }
+  }
+}
+for(i in 1:nrow(Result_acp)){
+  if(i==1 || i==2){Result_acp[i,ncol(Result_acp)]=Erreur(predict(model_list_nnet_acp[[i]],acp_test),y_test,conf=F)[5]}
+  else if(i==3){Result_acp[i,ncol(Result_acp)]=NA}
+  else{
+    Result_acp[i,ncol(Result_acp)]=Erreur(predict(model_list_nnet_acp[[i-1]],acp_test),y_test,conf=F)[5]
+  }
+}
+
+kable(round(Result_acp,digits=3),format = "html")
+```
+
+## Métrique F1-Score : 
+
+```{r, sans acp}
+Result_F1=matrix(NA,ncol=length(model_names)+1,nrow=nrow(Imbalance)+1)
+colnames(Result_F1)=c(model_names,"NNET")
+rownames(Result_F1)=c("Sans Rééchantillonnage","Poids","Undersampling","Oversampling","SMOTE3","SMOTE5","SMOTE10","ADASYN3","ADASYN5","ADASYN10","ROSE","Tomek Links")
+
+for(reech in 1:nrow(Result_F1)){ #Je parcours les model_liste
+  for(model in 1:(ncol(Result_F1)-1)){
+    if(reech==2){
+      if(model==1){Result_F1[reech,model]=Erreur(predict(list_model[[reech]][[model]],X_test),y_test,conf=F)[3]}
+      else if(model==2 || model==3){Result_F1[reech,model]=NA}
+      else{
+        Result_F1[reech,model]=Erreur(predict(list_model[[reech]][[model-2]],X_test),y_test,conf=F)[3]
+      }
+    }
+    else{
+      Result_F1[reech,model]=Erreur(predict(list_model[[reech]][[model]],X_test),y_test,conf=F)[3]
+    }
+  }
+}
+for(i in 1:nrow(Result_F1)){Result_F1[i,ncol(Result_F1)]=Erreur(predict(model_list_nnet[[i]],X_test),y_test,conf=F)[3]}
+
+kable(round(Result_F1,digits=3),format = "html")
+```
+
+```{r, avec ACP}
+Result_F1_acp=matrix(NA,ncol=length(model_names)+1,nrow=nrow(Imbalance)+1)
+colnames(Result_F1_acp)=c(model_names,"NNET")
+rownames(Result_F1_acp)=c("Sans Rééchantillonnage","Poids","Undersampling","Oversampling","SMOTE3","SMOTE5","SMOTE10","ADASYN3","ADASYN5","ADASYN10","ROSE","Tomek Links")
+
+for(reech in 1:nrow(Result_F1_acp)){ #Je parcours les model_liste
+  for(model in 1:(ncol(Result_F1_acp)-1)){
+    if(reech==2){
+      if(model==1){Result_F1_acp[reech,model]=Erreur(predict(list_model_acp[[reech]][[model]],acp_test),y_test,conf=F)[3]}
+      else if(model==2 || model==3){Result_F1_acp[reech,model]=NA}
+      else{
+        Result_F1_acp[reech,model]=Erreur(predict(list_model_acp[[reech]][[model-2]],acp_test),y_test,conf=F)[3]
+      }
+    }
+    else{
+      Result_F1_acp[reech,model]=Erreur(predict(list_model_acp[[reech]][[model]],acp_test),y_test,conf=F)[3]
+    }
+  }
+}
+for(i in 1:nrow(Result_F1_acp)){
+  if(i<8){Result_F1_acp[i,ncol(Result_F1_acp)]=Erreur(predict(model_list_nnet_acp[[i]],acp_test),y_test,conf=F)[3]}
+  else if(i==8){Result_F1_acp[i,ncol(Result_F1_acp)]=NA}
+  else{
+    Result_F1_acp[i,ncol(Result_F1_acp)]=Erreur(predict(model_list_nnet_acp[[i-1]],acp_test),y_test,conf=F)[3]
+  }
+}
+
+kable(round(Result_F1_acp,digits=3),format = "html")
+```
+
+```{r,variable importance,warning=F}
+nb_top=NA
+for(reech in 1:12){#J'ai 11 table de données diff
+  for(model in 1:9){#J'ai 9 modèle (or nnet)
+    if(reech==2){##under j'aurai pas de varimp pour modèle 2 et 3 mais j'aurai pour les autres
+      if(model==1){
+        nb_top=c(nb_top,rownames(top_n(varImp(list_model[[reech]][[model]])$importance,n=3)))
+      }
+      else if(model==2 || model==3 || model==7){} #Je fais rien
+      else{
+        nb_top=c(nb_top,rownames(top_n(varImp(list_model[[reech]][[model-2]])$importance,n=3)))
+      }
+    }
+    else{
+        if(model!=7){nb_top=c(nb_top,rownames(top_n(varImp(list_model[[reech]][[model]])$importance,n=3)))}
+      else{}
+    }
+  }
+}
+
+barplot(head(sort(prop.table(table(nb_top)),decreasing=T),6),las=2,col=rainbow(6),legend.text =round(head(sort(prop.table(table(nb_top)),decreasing=T),6),digits=2))
+```
+
+
+```{r}
+List_fin=list()
+data_names=c("Sans Rééchantillonnage","Poids","Undersampling","Oversampling","SMOTE3","SMOTE5","SMOTE10","ADASYN3","ADASYN5","ADASYN10","ROSE","Tomek Links")
+for(reech in 1:length(data_names)){ #Je parcours les data
+  R=matrix(NA,ncol=6,nrow=length(model_names)+1)
+  rownames(R)=c(model_names,"NNET")
+  colnames(R)=c("Accuracy","Precision","F1-Score","Recall","AUC","Specificity")
+  
+  for(model in 1:(nrow(R)-1)){ #Je parcours les modèles
+    if(reech==2){
+      if(model==1){R[model,]=Erreur(predict(list_model[[reech]][[model]],X_test),y_test,conf=F)}
+      else if(model==2 || model==3){R[model,]=NA}
+      else{
+        R[model,]=Erreur(predict(list_model[[reech]][[model-2]],X_test),y_test,conf=F)
+      }
+    }
+    else{
+      R[model,]=Erreur(predict(list_model[[reech]][[model]],X_test),y_test,conf=F)
+    }
+  }
+  R[nrow(R),]=Erreur(predict(model_list_nnet[[reech]],X_test),y_test,conf=F)
+  List_fin[[reech]]=R
+  names(List_fin)[reech]=data_names[reech]
+}
+for(i in 1:length(List_fin)){
+  List_fin[[i]]=round(List_fin[[i]],digits=3)
+  List_fin[[i]]=List_fin[[i]][,c(5,3,1,2,6)]
+}
+
+for(i in 1:length(List_fin)){
+  print(kable(List_fin[[i]],format="html"))
+}
+```
+
+```{r}
+List_fin_acp=list()
+data_names=c("Sans Rééchantillonnage","Poids","Undersampling","Oversampling","SMOTE3","SMOTE5","SMOTE10","ADASYN3","ADASYN5","ADASYN10","ROSE","Tomek Links")
+for(reech in 1:length(data_names)){ #Je parcours les data
+  R=matrix(NA,ncol=6,nrow=length(model_names)+1)
+  rownames(R)=c(model_names,"NNET")
+  colnames(R)=c("Accuracy","Precision","F1-Score","Recall","AUC","Specificity")
+  
+  for(model in 1:(nrow(R)-1)){ #Je parcours les modèles
+    if(reech==2){
+      if(model==1){R[model,]=Erreur(predict(list_model_acp[[reech]][[model]],acp_test),y_test,conf=F)}
+      else if(model==2 || model==3){R[model,]=NA}
+      else{
+        R[model,]=Erreur(predict(list_model_acp[[reech]][[model-2]],acp_test),y_test,conf=F)
+      }
+    }
+    else{
+      R[model,]=Erreur(predict(list_model_acp[[reech]][[model]],acp_test),y_test,conf=F)
+    }
+  }
+  if(reech<8){R[nrow(R),]=Erreur(predict(model_list_nnet_acp[[reech]],acp_test),y_test,conf=F)}
+  else if (reech==8){R[nrow(R),]=NA}
+  else {R[nrow(R),]=Erreur(predict(model_list_nnet_acp[[reech-1]],acp_test),y_test,conf=F)}
+  List_fin_acp[[reech]]=R
+  names(List_fin_acp)[reech]=data_names[reech]
+}
+
+for(i in 1:length(List_fin_acp)){
+  List_fin_acp[[i]]=round(List_fin_acp[[i]],digits=3)
+}
+
+for(i in 1:length(List_fin_acp)){
+  print(kable(List_fin_acp[[i]],format="html"))
+}
+rm(R,reech,model,i)
+```

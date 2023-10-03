@@ -1,0 +1,366 @@
+---
+title: "Deep Learning"
+author: "Laffineur Loïc"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r library, include=FALSE}
+#Manipulation : 
+library(dplyr)
+
+#Partie visualisation :
+library(ggplot2) #Plot
+
+#Autres pour ML :
+library(caret) #Split/Search/... ;
+library(caretEnsemble)
+library(e1071) #Algo de ML
+
+library(MLmetrics) #Metriques d'évaluation
+library(ROSE) #roc.curve
+
+library(nnet)
+```
+
+```{r, data}
+load("under_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_under,model_list_under_acp,model_names,test_acp,test_data,Erreur,y_test,x_under,x_under_acp)
+
+load("over_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_over,model_list_over_acp,model_names,test_acp,test_data,Erreur,y_test,x_over,x_over_acp)
+
+load("smote3_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_smote3,model_list_smote_acp3,model_names,test_acp,test_data,Erreur,y_test,x_smote,x_smote_acp)
+
+load("smote5_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_smote5,model_list_smote_acp5,model_names,test_acp,test_data,Erreur,y_test,x_smote,x_smote_acp)
+
+load("smote10_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_smote10,model_list_smote_acp10,model_names,test_acp,test_data,Erreur,y_test,x_smote,x_smote_acp)
+
+load("adasyn3_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_adasyn3,model_list_adasyn_acp3,model_names,test_acp,test_data,Erreur,y_test,x_adasyn,x_adasyn_acp)
+
+load("adasyn5_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_adasyn5,model_list_adasyn_acp5,model_names,test_acp,test_data,Erreur,y_test,x_adasyn,x_adasyn_acp)
+
+load("adasyn10_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_adasyn10,model_list_adasyn_acp10,model_names,test_acp,test_data,Erreur,y_test,x_adasyn,x_adasyn_acp)
+
+load("rose_data.RData")
+rm(Control_acp,Control_data,folds_acp,folds_data,model_list_rose,model_list_rose_acp,model_names,x_rose,x_rose_acp,test_acp,test_data,acp_test,acp_train,data_train,y_test,X_test,Erreur)
+
+load("tl_data.RData")
+rm(Control_acp,Control_data,folds_acp,folds_data,model_list_tl,model_list_tl_acp,model_names,x_tl,x_tl_acp,test_acp,test_data)
+
+list_data=list(data_train=data_train,under_train=under_train,over_train=over_train,smote_train3=smote_train3,smote_train5=smote_train5,smote_train10=smote_train10,adasyn_train3=adasyn_train3,adasyn_train5=adasyn_train5,adasyn_train10=adasyn_train10,rose_train=rose_train,tl_train=tl_train)
+rm(data_train,under_train,over_train,smote_train10,smote_train5,smote_train3,adasyn_train10,adasyn_train5,adasyn_train3,rose_train,tl_train)
+
+list_data_acp=list(acp_train=acp_train,under_acp=under_acp,over_acp=over_acp,smote_acp3=smote_acp3,smote_acp5=smote_acp5,smote_acp10=smote_acp10,adasyn_acp3=adasyn_acp3,adasyn_acp5=adasyn_acp5,adasyn_acp10=adasyn_acp10,rose_acp=rose_acp,tl_acp=tl_acp)
+rm(acp_train,under_acp,over_acp,smote_acp10,smote_acp5,smote_acp3,adasyn_acp10,adasyn_acp5,adasyn_acp3,rose_acp,tl_acp)
+```
+
+```{r, CV}
+data_names=c("Sans Rééchantillonnage","Poids","Undersampling","Oversampling","SMOTE3","SMOTE5","SMOTE10","ADASYN3","ADASYN5","ADASYN10","ROSE","Tomek links")
+
+#Nos folds pour la CV :
+set.seed(12)
+folds_list=list(folds_data=createFolds(list_data[[1]]$top_sanction,k=5),
+                folds_under=createFolds(list_data[[2]]$top_sanction,k=5),
+                folds_over=createFolds(list_data[[3]]$top_sanction,k=5),
+                folds_smote3=createFolds(list_data[[4]]$top_sanction,k=5),
+                folds_smote5=createFolds(list_data[[5]]$top_sanction,k=5),
+                folds_smote10=createFolds(list_data[[6]]$top_sanction,k=5),
+                folds_adasyn3=createFolds(list_data[[7]]$top_sanction,k=5),
+                folds_adasyn5=createFolds(list_data[[8]]$top_sanction,k=5),
+                folds_adasyn10=createFolds(list_data[[9]]$top_sanction,k=5),
+                folds_rose=createFolds(list_data[[10]]$top_sanction,k=5),
+                folds_tl=createFolds(list_data[[11]]$top_sanction,k=5))
+
+set.seed(12)
+folds_list_acp=list(folds_acp=createFolds(list_data[[1]]$top_sanction,k=5),
+                    folds_under_acp=createFolds(list_data[[2]]$top_sanction,k=5),
+                    folds_over_acp=createFolds(list_data[[3]]$top_sanction,k=5),
+                    folds_smote3_acp=createFolds(list_data[[4]]$top_sanction,k=5),
+                    folds_smote5_acp=createFolds(list_data[[5]]$top_sanction,k=5),
+                    folds_smote10_acp=createFolds(list_data[[6]]$top_sanction,k=5),
+                    folds_adasyn3_acp=createFolds(list_data[[7]]$top_sanction,k=5),
+                    folds_adasyn5_acp=createFolds(list_data[[8]]$top_sanction,k=5),
+                    folds_adasyn10_acp=createFolds(list_data[[9]]$top_sanction,k=5),
+                    folds_rose_acp=createFolds(list_data[[10]]$top_sanction,k=5),
+                    folds_tl_acp=createFolds(list_data[[11]]$top_sanction,k=5))
+
+#Règle de CV : 
+Control_list=list(Control_data = trainControl(method = "cv", number = 5, index=folds_list[[1]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+                  Control_under = trainControl(method = "cv", number = 5, index=folds_list[[2]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_over = trainControl(method = "cv", number = 5, index=folds_list[[3]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_smote3 = trainControl(method = "cv", number = 5, index=folds_list[[4]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_smote5 = trainControl(method = "cv", number = 5, index=folds_list[[5]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_smote10 = trainControl(method = "cv", number = 5, index=folds_list[[6]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_adasyn3 = trainControl(method = "cv", number = 5, index=folds_list[[7]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_adasyn5 = trainControl(method = "cv", number = 5, index=folds_list[[8]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_adasyn10 = trainControl(method = "cv", number = 5, index=folds_list[[9]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_rose = trainControl(method = "cv", number = 5, index=folds_list[[10]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_tl = trainControl(method = "cv", number = 5, index=folds_list[[11]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F))
+
+
+Control_list_acp=list(Control_data = trainControl(method = "cv", number = 5, index=folds_list_acp[[1]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_under = trainControl(method = "cv", number = 5, index=folds_list_acp[[2]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_over = trainControl(method = "cv", number = 5, index=folds_list_acp[[3]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_smote3 = trainControl(method = "cv", number = 5, index=folds_list_acp[[4]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_smote5 = trainControl(method = "cv", number = 5, index=folds_list_acp[[5]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_smote10 = trainControl(method = "cv", number = 5, index=folds_list_acp[[6]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_adasyn3 = trainControl(method = "cv", number = 5, index=folds_list_acp[[7]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_adasyn5 = trainControl(method = "cv", number = 5, index=folds_list_acp[[8]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_adasyn10 = trainControl(method = "cv", number = 5, index=folds_list_acp[[9]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_rose = trainControl(method = "cv", number = 5, index=folds_list_acp[[10]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F),
+Control_tl = trainControl(method = "cv", number = 5, index=folds_list_acp[[11]], search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F))
+
+#Poids : 
+k=table(list_data[[1]]$top_sanction)[2]/table(list_data[[1]]$top_sanction)[1]
+poids = ifelse(list_data[[1]]$top_sanction=="X0",k,1);rm(k)
+```
+
+# PMC simple avec nnet : 
+
+```{r, NNET}
+set.seed(12)
+#Liste des modèles :
+start_time=Sys.time()
+model_list_nnet=list(
+  nnet=train(top_sanction~.,list_data[[1]],
+                   method="nnet", tuneLength=500,
+                   metric="ROC",trace=F, trControl = Control_list[[1]], preProcess = c("center", "scale","nzv")),
+  nnet_poids=train(top_sanction~.,list_data[[1]],
+                   method="nnet", tuneLength=500,
+                   metric="ROC", weights=poids,trace=F, trControl = Control_list[[1]], preProcess = c("center", "scale","nzv")), 
+  nnet_under=train(top_sanction~.,list_data[[2]],
+                  method="nnet", tuneLength=500,
+                  metric="ROC",trace=F, trControl = Control_list[[2]], preProcess = c("center", "scale","nzv")),
+  nnet_over=train(top_sanction~.,list_data[[3]],
+                  method="nnet", tuneLength=500,
+                  metric="ROC",trace=F, trControl = Control_list[[3]], preProcess = c("center", "scale","nzv")),
+  nnet_smote3=train(top_sanction~.,list_data[[4]],
+                    method="nnet", tuneLength=500,
+                    metric="ROC",trace=F, trControl = Control_list[[4]], preProcess = c("center", "scale","nzv")),
+  nnet_smote5=train(top_sanction~.,list_data[[5]],
+                    method="nnet", tuneLength=500,
+                    metric="ROC",trace=F, trControl = Control_list[[5]], preProcess = c("center", "scale","nzv")),
+  nnet_smote10=train(top_sanction~.,list_data[[6]],
+                     method="nnet", tuneLength=500,
+                     metric="ROC",trace=F, trControl = Control_list[[6]], preProcess = c("center", "scale","nzv")),
+  nnet_adasyn3=train(top_sanction~.,list_data[[7]],
+                     method="nnet", tuneLength=500,
+                     metric="ROC",trace=F, trControl = Control_list[[7]], preProcess = c("center", "scale","nzv")),
+  nnet_adasyn5=train(top_sanction~.,list_data[[8]],
+                     method="nnet", tuneLength=500,
+                     metric="ROC",trace=F, trControl = Control_list[[8]], preProcess = c("center", "scale","nzv")),
+  nnet_adasyn10=train(top_sanction~.,list_data[[9]],
+                      method="nnet", tuneLength=500,
+                      metric="ROC",trace=F, trControl = Control_list[[9]], preProcess = c("center", "scale","nzv")),
+  nnet_rose=train(top_sanction~.,list_data[[10]],
+                  method="nnet", tuneLength=500,
+                  metric="ROC",trace=F, trControl = Control_list[[10]], preProcess = c("center", "scale","nzv")),
+  nnet_tl=train(top_sanction~.,list_data[[11]],
+                  method="nnet", tuneLength=500,
+                  metric="ROC",trace=F, trControl = Control_list[[11]], preProcess = c("center", "scale","nzv")))
+end_time=Sys.time()
+end_time-start_time #Time difference of 16.35353 mins
+
+set.seed(12)
+#Liste des modèles :
+start_time=Sys.time()
+model_list_nnet_acp=list(
+  nnet=train(top_sanction~.,list_data_acp[[1]],
+                   method="nnet", tuneLength=500,
+                   metric="ROC",trace=F, trControl = Control_list_acp[[1]], preProcess = c("center", "scale","nzv")),
+  nnet_poids=train(top_sanction~.,list_data_acp[[1]],
+                   method="nnet", tuneLength=500,
+                   metric="ROC", weights=poids,trace=F, trControl = Control_list_acp[[1]], preProcess = c("center", "scale","nzv")),
+  nnet_under=train(top_sanction~.,list_data_acp[[2]],
+                  method="nnet", tuneLength=500,
+                  metric="ROC",trace=F, trControl = Control_list_acp[[2]], preProcess = c("center", "scale","nzv")),
+  nnet_over=train(top_sanction~.,list_data_acp[[3]],
+                  method="nnet", tuneLength=500,
+                  metric="ROC",trace=F, trControl = Control_list_acp[[3]], preProcess = c("center", "scale","nzv")),
+  nnet_smote3=train(top_sanction~.,list_data_acp[[4]],
+                    method="nnet", tuneLength=500,
+                    metric="ROC",trace=F, trControl = Control_list_acp[[4]], preProcess = c("center", "scale","nzv")),
+  nnet_smote5=train(top_sanction~.,list_data_acp[[5]],
+                    method="nnet", tuneLength=500,
+                    metric="ROC",trace=F, trControl = Control_list_acp[[5]], preProcess = c("center", "scale","nzv")),
+  nnet_smote10=train(top_sanction~.,list_data_acp[[6]],
+                     method="nnet", tuneLength=500,
+                     metric="ROC",trace=F, trControl = Control_list_acp[[6]], preProcess = c("center", "scale","nzv")),
+  # nnet_adasyn3=train(top_sanction~.,list_data_acp[[7]],
+  #                    method="nnet", tuneLength=500,
+  #                    metric="ROC",trace=F, trControl = Control_list_acp[[7]], preProcess = c("center", "scale","nzv")),
+  nnet_adasyn5=train(top_sanction~.,list_data_acp[[8]],
+                     method="nnet", tuneLength=500,
+                     metric="ROC",trace=F, trControl = Control_list_acp[[8]], preProcess = c("center", "scale","nzv")),
+  nnet_adasyn10=train(top_sanction~.,list_data_acp[[9]],
+                      method="nnet", tuneLength=500,
+                      metric="ROC",trace=F, trControl = Control_list_acp[[9]], preProcess = c("center", "scale","nzv")),
+  nnet_rose=train(top_sanction~.,list_data_acp[[10]],
+                  method="nnet", tuneLength=500,
+                  metric="ROC",trace=F, trControl = Control_list_acp[[10]], preProcess = c("center", "scale","nzv")),
+  nnet_tl=train(top_sanction~.,list_data_acp[[11]],
+                  method="nnet", tuneLength=500,
+                  metric="ROC",trace=F, trControl = Control_list_acp[[11]], preProcess = c("center", "scale","nzv"))
+  )
+end_time=Sys.time()
+end_time-start_time #Time difference of 5.947045 mins
+
+rm(start_time,end_time)
+```
+
+# Résultats : 
+
+```{r, sans ACP}
+for(i in 1:length(data_names)){
+  if(i==1 || i==2){  
+    print(data_names[i])
+    print(Erreur(predict(model_list_nnet[[i]],select(list_data[[1]],-top_sanction)),list_data[[1]]$top_sanction))
+    print(Erreur(predict(model_list_nnet[[i]],X_test),y_test))
+  }
+  else{
+    print(data_names[i])
+    print(Erreur(predict(model_list_nnet[[i]],select(list_data[[i-1]],-top_sanction)),list_data[[i-1]]$top_sanction))
+    print(Erreur(predict(model_list_nnet[[i]],X_test),y_test))
+  }
+}
+```
+
+Tous les modèles overfittent, le modèle sur ROSE pourrait même être considéré comme en sous-apprentissage vu son erreur sur la classe X1.
+
+```{r, avec ACP}
+for(i in 1:length(data_names)){
+  if(i==1){  
+    print(data_names[i])
+    print(Erreur(predict(model_list_nnet_acp[[i]],select(list_data_acp[[1]],-top_sanction)),list_data_acp[[1]]$top_sanction))
+    print(Erreur(predict(model_list_nnet_acp[[i]],acp_test),y_test))
+  }
+  else if(i<8 & i!=1){
+    print(data_names[i])
+    print(Erreur(predict(model_list_nnet_acp[[i]],select(list_data_acp[[i-1]],-top_sanction)),list_data_acp[[i-1]]$top_sanction))
+    print(Erreur(predict(model_list_nnet_acp[[i]],acp_test),y_test))}
+  else if (i==8){}
+  else if (i>8){
+    print(data_names[i])
+    print(Erreur(predict(model_list_nnet_acp[[i-1]],select(list_data_acp[[i-1]],-top_sanction)),list_data_acp[[i-1]]$top_sanction))
+    print(Erreur(predict(model_list_nnet_acp[[i-1]],acp_test),y_test))
+  }
+}
+
+rm(i)
+```
+
+La majorité des prédicteurs sur la table avec ACP sur-apprennent et celle sur les données sans rééchantillonnage
+
+```{r}
+### Importance des variables : 
+for(i in 1:length(data_names)){
+  barplot(as.matrix(varImp(model_list_nnet[[i]])$importance)[,1],las=2,col=rainbow(ncol(list_data[[1]])),main=paste("Importance des variables",data_names[i],"(Sans ACP)"))
+}
+
+for(i in 1:(length(data_names)-1)){
+  barplot(as.matrix(varImp(model_list_nnet_acp[[i]])$importance)[,1],las=2,col=rainbow(ncol(list_data_acp[[1]])),main=paste("Importance des variables",(data_names[-8])[i],"(Avec ACP)"))
+}
+```
+
+# Comparaison des modèles optimisés entre eux : 
+
+```{r, prediction sur le test}
+print("Sans ACP : ")
+for(i in 1:length(data_names)){
+  print(data_names[i])
+  print(Erreur(predict(model_list_nnet[[i]],X_test),y_test))
+}
+
+col=rainbow(length(data_names))
+roc.curve(y_test,predict(model_list_nnet$nnet,X_test),col=col[1],main="ROC Curve sans ACP")
+roc.curve(y_test,predict(model_list_nnet$nnet_poids,X_test),col=col[2],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet$nnet_under,X_test),col=col[3],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet$nnet_over,X_test),col=col[4],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet$nnet_smote3,X_test),col=col[5],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet$nnet_smote5,X_test),col=col[6],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet$nnet_smote10,X_test),col=col[7],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet$nnet_adasyn3,X_test),col=col[8],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet$nnet_adasyn5,X_test),col=col[9],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet$nnet_adasyn10,X_test),col=col[10],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet$nnet_rose,X_test),col=col[11],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet$nnet_tl,X_test),col=col[12],add.roc = T)
+legend('topleft',legend=data_names[1:4],col=col[1:6],lwd=2)
+legend('bottomright',legend=data_names[-c(1:4,8)],col=col[5:12],lwd=2)
+
+for(i in 1:5){print("")}
+
+print("ACP : ")
+for(i in 1:(length(data_names)-1)){
+  print(data_names[-8][i])
+  print(Erreur(predict(model_list_nnet_acp[[i]],acp_test),y_test))
+}
+
+col=rainbow(length(data_names))
+roc.curve(y_test,predict(model_list_nnet_acp$nnet,acp_test),col=col[1],main="ROC Curve avec ACP")
+roc.curve(y_test,predict(model_list_nnet_acp$nnet_poids,acp_test),col=col[2],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet_acp$nnet_under,acp_test),col=col[3],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet_acp$nnet_over,acp_test),col=col[4],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet_acp$nnet_smote3,acp_test),col=col[5],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet_acp$nnet_smote5,acp_test),col=col[6],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet_acp$nnet_smote10,acp_test),col=col[7],add.roc = T)
+# roc.curve(y_test,predict(model_list_nnet_acp$nnet_adasyn3,acp_test),col=col[8],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet_acp$nnet_adasyn5,acp_test),col=col[9],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet_acp$nnet_adasyn10,acp_test),col=col[10],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet_acp$nnet_rose,acp_test),col=col[11],add.roc = T)
+roc.curve(y_test,predict(model_list_nnet_acp$nnet_tl,acp_test),col=col[12],add.roc = T)
+legend('topleft',legend=data_names[1:4],col=col[1:6],lwd=2)
+legend('bottomright',legend=data_names[-c(1:4,8)],col=col[5:12],lwd=2)
+
+rm(col,i)
+```

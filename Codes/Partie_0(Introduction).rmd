@@ -1,0 +1,433 @@
+---
+title: "Introduction_Pha"
+author: "Laffineur Loïc"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# 1 - Composition de la base de données initiale : 
+
+PFS_EXE_NUM : N° Assurance Maladie de la pharmacie
+
+PFS_FIN_NUM : N° FINESS de la pharmacie
+
+date_ouverture : Date de début d'activité sous ce numéro
+
+active_tout2018_1 : Pharmacie active toute l'année 2021 (oui ou non)
+
+date_fermeture : Si non, date de changement d'exercice (au sens de EXC_EXC_NAT juste après)
+
+EXC_EXC_NAT : Code nature exercice (01= Libéral;06=pharmacie mutualiste;07=fin d'activité)
+
+EXC_FIN_MTF : Motif de fin d'exercice (03=fin activité) (une seule modalité)
+
+nb_phies : Nombre de N° AM par n° FINESS
+
+BSE_REM_MNT : Montant total remboursé
+
+MNT_RBS_M : Montant remboursé (Médicament)
+
+MNT_RBS_L : Montant remboursé (LPP)
+
+MNT_RBS_PA : Montant remboursé Petit Appareillage (LPP non codée)
+
+MNT_RBS_PMR : Montant remboursé préparation magistrale remboursable (PMR)
+
+mnt_tot_rbs_cip_onereux : Montant remboursé (Liste médicaments onéreux retenus)
+
+mnt_tot_rbs_grpe_ge : Montant remboursé (Liste médicaments groupes génériques retenus)
+
+mnt_remb_lpp : Montant remboursé (Liste groupes LPP retenus)
+
+mnt_p_ord : Montant moyen par ordonnance  
+
+taux_renouv : Taux de renouvellement (nb de délivrances - nb d'ordonnances /nb d'ordonnances)
+                                                                                                        
+evol_cajm_1s_2s_2018 : Taux d'évolution journalier du chiffre d'affaires entre le semestre année n et le semestre n-1 pour les pharmacies actives sur toute cette période
+                                                                                                            
+NB_BEN : Nombre total de bénéficiaires
+
+mnt_p_ben : Montant moyen par bénéficiaire 
+
+mnt_rbs_M_p_ben : Montant moyen par bénéficiaire (médicament)
+
+mnt_rbs_l_p_ben : Montant moyen par bénéficiaire (LPP)
+
+part_mnt_bse_hs_region : Part du montant remboursé relatif aux bénéficiaires qui ne sont pas affiliés dans la région de la pharmacie
+
+nb_decompte : Nombre total de décomptes
+
+nb_decompte_sup180 : Nombre de décomptes sup à 180€ 
+
+part_b2s_montt_sup180 : % B2S relatifs aux décomptes sup à 180€
+
+part_b2s_monttinf180 : % B2S relatifs aux décomptes inf à 180€
+
+diff_part : Différence entre la part de B2S relatifs aux décomptes inf à 180€  et la part de B2S relatifs aux décomptes sup à 180€
+                                                                                                            
+NOM : Médicament onéreux avec le montant de surfacturation le plus important
+
+NOMGPE : Groupe générique avec le montant de surfacturation le plus important
+
+GPE_LPP_LIB : Groupe LPP avec le montant de surfacturation le plus important
+
+estim_prejudice_remb_onereux : Indicateur de surfacturation médicaments onéreux (En euros)
+
+estim_prejudice_mnt_remb : Indicateur de surfacturation médicaments groupes génériques (En euros)
+
+estim_prejud_remb_tt_LPP : Indicateur de surfacturation groupes LPP (En euros)
+
+region : Région de localisation de la pharmacie
+
+top_controle_og3s : 1 si controlée 0 sinon (Infos d'OG3S)
+
+top_sanction : 1 si sanctionnée 0 sinon (Infos d'OG3S)
+
+prej_subi : Montant du préjudice subit par une pharmacie sanctionnée (Infos d'OG3S)
+
+top_controle_og3s_3ans_avt : 1 si controlé dans les 3 ans avant 0 sinon (Indicateur calculé à partir des infos OG3S)
+
+top_sanction_3_ans_avt : 1 si sanctionné dans les 3 ans avant 0 sinon (Indicateur calculé à partir des infos OG3S)
+
+prej_subi_3_ans_avt : montant du préjudice subit par une pharmacie sanctionnée 3 ans avant (Indicateur calculé à partir des infos OG3S)
+
+top_info_eval : variable de verification de la construction de la table.
+
+top_cont_ddfc_2018 : controlé par la ddfc en 2018
+
+# 2 - Préparation des données :
+
+```{r library, include=FALSE}
+#Importation table SAS :
+# library(haven)
+library(sas7bdat)
+library(readxl)
+
+#Manipulation : 
+library(dplyr)
+
+#Partie visualisation :
+library(FactoMineR) #ACP coté analyse
+library(factoextra) #ACP visu/interprétation des resultats
+library(ggplot2) #Plot
+library(corrplot) #Matrice de corrélation (Visuel)
+# library(vcd) #Corrélation caté
+
+#Mesure d'erreur : 
+library(MLmetrics) #Pour la fonction Erreur
+library(ROSE)
+
+#Split : 
+library(caret)
+```
+
+```{r importation et suppression des variables non pertinentes}
+# tab_pha_2018 <- read_sas('tab_eval_phie_2018.sas7bdat') #Serveur
+tab_pha_2018 <- read_excel('C:/Users/LAFFINEUR-31361/Documents/tab_eval_phie_2018.xlsx') #Local
+
+tab_pha_2018=filter(tab_pha_2018,top_controle_og3s==1)
+
+# Variables identifiantes pour les pharmacies :
+tab_pha_2018=select(tab_pha_2018,-PFS_EXE_NUM,-PFS_FIN_NUM,-date_fermeture,-date_ouverture,-EXC_EXC_NAT, -EXC_FIN_MTF)
+
+# Variables de mauvaise qualité :
+tab_pha_2018=select(tab_pha_2018,-prej_subi_3ans_avt, -top_sanction_3ans_avt, -top_controle_og3s_3ans_avt)
+
+# Variables liées au fait d'être sanctionné : 
+tab_pha_2018=select(tab_pha_2018,-prej_subi)
+
+# Variables supposé non utile à la prédiction : 
+tab_pha_2018=select(tab_pha_2018, -NOM, -NOMGPE,-GPE_LPP_LIB, -region,
+                    -top_controle_og3s, -top_cont_ddfc_2018, -top_info_eval)
+
+# Modification du type des variables : 
+# Active_tout2018_1 devient un facteur à deux modalités : 
+tab_pha_2018$active_tout2018_1=as.factor(as.numeric(tab_pha_2018$active_tout2018_1=="OUI"))
+
+# Nb_phies devient un entier (pas très utile je pense le passage de dbl a int) :
+tab_pha_2018$nb_phies=as.integer(tab_pha_2018$nb_phies)
+
+#¨Top_sanction devient un factor à deux modalités : 
+tab_pha_2018$top_sanction=as.factor(tab_pha_2018$top_sanction)
+
+tab_ML=tab_pha_2018
+
+#Suppression des variables intermédiaires : 
+rm(tab_pha_2018)
+```
+
+Après suppression de toutes les variables dont nous n'avions pas besoin et en gardant que les individus controlés on passe d'une table de 23029 lignes et 44 variables à une table de 1297 lignes et 27 variables.
+
+# 3 - Séparation Train/Test :
+
+Pour réaliser l'apprentissage et l'évaluation de nos modèles nous allons maintenant séparer nos données en deux parties (80%/20%). On fait également une petite vérification sur la compostion de nos deux partitions afin d'être sûr que la répartition de notre variable de sortie est la même dans les deux sets. On vérifie également à l'aide d'un test de Kolmogorov Smirnov que chacune des variables de notre ensemble de test à la même loi que celle de notre ensemble de train afin de s'assurer que les deux sets sont tirés selon les mêmes lois et donc représentent la même population.
+
+```{r, train/test, warning=F}
+#Séparation train/test sans validation-set et sans rééchantillonnage : ici 80/20
+set.seed(13)
+trainIndex <- createDataPartition(tab_ML$top_sanction, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+data_train=tab_ML[trainIndex,]
+data_test=tab_ML[-trainIndex,]
+
+print("Train : ")
+table(data_train$top_sanction)
+table(data_train$top_sanction)/sum(table(data_train$top_sanction))
+print("Test : ")
+table(data_test$top_sanction)
+table(data_test$top_sanction)/sum(table(data_test$top_sanction))
+
+#Suppression des variables intermédiaires : 
+X_test=select(data_test,-top_sanction)
+y_test=data_test$top_sanction
+
+rm(trainIndex,data_test)
+
+# Vérification de la distribution de nos deux parties : 
+tr=data_train
+te=cbind(X_test,y_test)
+
+tr$active_tout2018_1=as.numeric(tr$active_tout2018_1)-1
+tr$nb_phies=as.numeric(tr$nb_phies)
+tr$top_sanction=as.numeric(tr$top_sanction)-1
+
+te$active_tout2018_1=as.numeric(te$active_tout2018_1)-1
+te$nb_phies=as.numeric(te$nb_phies)
+te$y_test=as.numeric(te$y_test)-1
+
+res=c()
+for(i in 1:ncol(tr)){
+  res=c(res,ks.test(tr[,i],te[,i])$p.value)
+}
+print("Indice de variable avec P-value en dessous de 15% : ")
+which(res<0.15)
+
+rm(res,tr,te,i)
+```
+
+La séparation nous donne bien deux ensemble de taille différente mais avec une répartition similaire de nos classes. Petite remarque au passage on voit que nos données présente un déséquilibre en faveur de la classe 1 qui peut être expliqué par le fait que les controles sont majoritairement réalisé (ou en tout cas enregistré) s'ils sont positifs (fraudeur).
+
+# 4 - Fonction d'erreur : 
+
+```{r, Tableau des erreurs}
+Erreur=function(pred,y_true=y_test,conf=T){
+  res=matrix(NA,1,6)
+  colnames(res)=c("Accuracy","Precision","F1-Score","Recall","AUC","Specificity")
+  rownames(res)=c("Erreur")
+  if(conf==T){
+    print(ConfusionMatrix(y_pred=pred,y_true))
+    print("")
+  }
+  res[1,1]=Accuracy(pred,y_true)
+  res[1,2]=Precision(y_true,pred)
+  res[1,3]=F1_Score(y_true,pred)
+  res[1,4]=Recall(y_true,pred)
+  if(length(unique(pred))!=2){res[1,5]=NA}
+  else {res[1,5]=roc.curve(y_true,pred,plotit = F)$auc}
+  res[1,6]=Specificity(y_true,pred)
+  return(res)
+}
+```
+
+Pour la suite on va se fixer l'utilisation de l'$AUC_{ROC}$ pour l'optimisation de nos hyperparamètres et l'utilisation simultanée de l'$AUC_{ROC}$ et du F1-score pour la selection du modèle final parmi notre liste de modèle créée.
+
+# 5 - Corrélation : 
+
+La corrélation mesure la force du lien entre deux variables. Si elle est égale à +1 ou -1 les deux variables sont totalement liés, en 0 nos variables n'ont aucun lien l'une sur l'autre.
+Il existe différent type de corrélation pour mesurer le lien entre des variables quantitatives continues (notre cas) : 
+  1- La corrélation de Pearson : c'est la mesure de corrélation la plus utilisée pour étudier une relation linéaire (sa force et son sens) entre deux variables continues. 
+  2- La corrélation de Spearman : cette mesure contrairement à celle de Pearson a pour avantage de detecter les corrélations non linéaires car elle évalue la capacité de la relation entre deux variables à être décrite par une fonction monotone. 
+  3- La corrélation de Kendall : le tau de Kendall quant à lui evalue l'association entre les rangs de deux variables une fois passées en variables ordinales et triées.
+
+Dans la suite nous utiliserons la corrélation de Spearman. 
+  
+```{r, matrice de corrélation(numérique) ,fig.width=15}
+tab_corr=data_train
+
+#On passe en numérique nos variables binaires pour pouvoir faire la corrélation avec du numérique :
+tab_corr$active_tout2018_1=as.numeric(tab_corr$active_tout2018_1)-1
+tab_corr$top_sanction=as.numeric(tab_corr$top_sanction)-1
+
+colnames(tab_corr)=c(paste("Variable",1:(ncol(tab_corr)-1)),"top_sanction")
+
+corr_spearman=cor(tab_corr,method='spearman')
+
+corrplot(corr_spearman,type="lower",order="hclust") # 8 clusters
+
+corrplot(corr_spearman,type="lower",order="original") 
+```
+La corrélation de Spearman nous pousse à penser qu'il y a en gros 9 clusters de variables. 
+
+```{r, corr avec top_sanction, fig.height=5, fig.width=15}
+#Corrélation variables numériques avec notre cible : 
+barplot(sort(corr_spearman[nrow(corr_spearman),-ncol(corr_spearman)]), las=2,
+        names.arg = names(corr_spearman[nrow(corr_spearman),-ncol(corr_spearman)]),
+        main="Corrélation Spearman avec top_sanction", col=rainbow(length(sort(corr_spearman[nrow(corr_spearman),]))))
+legend('topleft', legend=round(sort(corr_spearman[nrow(corr_spearman),-ncol(corr_spearman)]),digits=3), pch=2,
+       col=rainbow(length(sort(corr_spearman[nrow(corr_spearman),-ncol(corr_spearman)]))), ncol=5)
+
+rm(tab_corr,corr_spearman)
+```
+
+On observe globalement que des faibles valeurs de corrélation (en -0.1 et 0.1), il ne semble pas y avoir de lien clair entre une variable explicative et notre top_sanction.
+
+# 6 - ACP : 
+
+
+```{r, ACP} 
+pca_tab=select(data_train,-top_sanction)
+
+t=X_test
+t$active_tout2018_1=as.numeric(X_test$active_tout2018_1)-1
+pca_tab$active_tout2018_1=as.integer(pca_tab$active_tout2018_1)-1
+pca_tab_fin=rbind(pca_tab,t)
+rm(t,pca_tab)
+
+acp=PCA(pca_tab_fin, scale.unit = T, graph=F, ncp=ncol(pca_tab_fin), ind.sup=(nrow(data_train)+1):nrow(pca_tab_fin))
+```
+
+Plusieurs méthodes s'offrent à nous concernant le choix du nombre d'axes mais je vais utiliser celle qui consiste à se fixer un seuil de variance globale expliquée et prendre le nombre d'axes associé (ici mon seuil sera à 90% pour espérer avoir des resultats proches de ceux sans ACP). A des fins de comparaison j'utiliserai aussi la règle de coude (On cherche un coude sur le barplot de nos valeurs propres/de nos variances expliquées); La règle de Kaiser : on garde les valeurs propres supérieures à la moyenne des valeurs propres.
+
+```{r, Choix du nb d'axe, fig.width=10}
+# 1 - Choix du nombre de variable à partir d'un seuil qu'on se fixe : 
+print("Choix par le seuil à 90% : ")
+kable(round(data.matrix(acp$eig),digits=3),format='html')
+
+# 2 - Règle de Kaiser : conserver que les VP supérieures à mean(VP)
+print("Choix par la méthode de Kaiser : ")
+kable(round(data.matrix(acp$eig[acp$eig[,1]>mean(acp$eig[,1]),]),digits=3),format='html')
+
+# 3 - Règle du coude : 
+fviz_eig(acp,ncp=ncol(pca_tab_fin), addlabels = T,main="Règle du coude")
+```
+
+Le critère utilisant du seuil nous donne 10 axes pour une variance globale expliquée à 89.7%.
+La règle du coude elle donne 2 axes et 52.1% de variance expliquée ce qui est beaucoup plus faible (en axes et en variance epxliquée) mais un petit nombre d'axes est parfois utile notamment pour la représentation graphique (ce qui peut être une des motivation de l'acp).
+La règle de Kaiser quant à elle nous donne 7 axes pour 80.9% (c'est très acceptable mais j'ai peur que 80% de variance expliquée ne soit pas assez pour avoir des resultats proches des resultats originaux).
+
+Afin de vérifier la qualité de nos axes nous allons à présent regarder les contributions de nos individus à nos composantes principales; Si une composante principale est très représentée par un seul individu nous allons devoir le traiter à part car cela veut dire qu'il a un comportement atypique qui le démarque des autres et qu'il a un impact trop fort sur notre calcul de l'acp. On pourrait le traiter en le mettant dans nos individus supplémentaires comme ça son niveau d'atypie n'impactera pas l'acp mais on le gardera dans notre train. Le choix de la valeur à partir de laquelle on considère que l'individu à un grosse contribution est totalement subjectif. Personnellement je pars du poids uniforme (1/taille du train) que je multiplie par 100 pour avoir un pourcentage (comme les contributions sont des pourcentages) et que je multiplies ensuite par 25 (ie si mon individu a un poids supérieur à 25x une personne normale ca me parait suspect).
+
+```{r}
+fviz_pca_ind(acp ,geom.ind = c("point","text"),col.ind =as.integer(data_train$top_sanction)-1,
+             legend.title="Groups", invisible="ind.sup",title="ACP de base")
+
+nb_acp=10
+
+l=c()
+for(i in 1:nb_acp){ #Poids uniforme * 100 (%) * 25 (aléatoire)
+  print(paste0("Individu avec contribution grande sur la variable ",i," : "))
+  print(unique(which(acp$ind$contrib[,i]>1/nrow(data_train)*100*25)))
+  l=sort(unique(c(l,which(acp$ind$contrib[,i]>1/nrow(data_train)*100*25))))
+}
+print(l)
+
+#Re-calcule de notre ACP en enlevant les atypiques : 
+nb_biz=length(l)
+while(nb_biz>10){ #l : les indices dans pca_tab_fin; même ordre que data_train
+  acp2=PCA(pca_tab_fin,ncp=ncol(pca_tab_fin),ind.sup=c((nrow(data_train)+1):nrow(pca_tab_fin),l),graph = F)
+  
+  fviz_pca_ind(acp2 ,geom.ind = c("point","text"),col.ind = as.integer(data_train$top_sanction[-l])-1,
+               legend.title="Groups", invisible="ind.sup",title="ACP de base")
+  
+  l2=c()
+  for(i in 1:nb_acp){
+    l2=sort(unique(c(l2,which(acp2$ind$contrib[,i]>1/nrow(data_train[-l,])*100*25))))
+  }
+  print(length(l2))# l2 mes indices dans ma tables de mes individus, réordonnée pour pas avoir de trou
+  
+  compt=rep(0,length(l2)) #Nombre d'indice inf ou egal dans l pour savoir le "vrai" indice de l2 dans data_train
+  for(i in 1:length(l2)){
+    for(j in 1:length(l)){
+      if(l2[i]>=l[j]){compt[i]=compt[i]+1}
+    }
+  }
+  l=unique(c(l,l2+compt))
+  nb_biz=length(l2)
+}
+acp2=PCA(pca_tab_fin,ncp=ncol(pca_tab_fin),ind.sup=c((nrow(data_train)+1):nrow(pca_tab_fin),l),graph = F)
+fviz_pca_ind(acp2 ,geom.ind = c("point","text"),col.ind = as.integer(data_train$top_sanction[-l])-1,
+               legend.title="Groups", invisible="ind.sup",title="ACP finale")
+rm(nb_biz,l2,i,j,acp,compt)
+
+table(data_train[l,]$top_sanction)
+```
+
+Nous avons quelques individus qui ressortent comme ayant une contribution "haute" dans notre table pour la qualité de notre ACP. Comme dit plus tôt nous allons les éliminer en les mettant dans les individus supplémentaires pour pas qu'ils ne contribuent à la formation de mes composantes principales. Une fois cette étape faite nous avons une nouvelle ACP avec (si on utilise le même critère de choix du nombre de CP que tout à l'heure) une variance expliquée de 90.6% pour 10 variables (ce qui est proche de ce que nous avions avant).
+
+En plus de nos individus qui contribuent fortement aux axes nous pouvons aussi remarquer une très mauvaise séparation de nos classes après la réalisation de l'ACP. Ce résultat peut être dû au fait que nos classes sont mal capturées par nos axes principaux, ça peut se produire si nos variables initiales n'apportent pas suffisamment d'information sur cette distinction. 
+
+Maintenant que nous avons notre ACP "finale" nous allons passer à la partie d'explicativité des composantes principales afin d'essayer de leur donner un sens.
+
+```{r Explication des axes}
+corrplot(acp2$var$cor[,1:nb_acp])
+
+corrplot(acp2$var$contrib[,1:nb_acp],is.corr=F,col=COL1(sequential = 'Reds',n=100)) #Contribiution a un axe ???
+
+corrplot(acp2$var$cos2[,1:nb_acp], is.corr=F,col=COL1(sequential = 'Reds',n=100)) #qualité de la representation des variables
+```
+
+En combinant les informations de ces 3 cartes de chaleur (corrélation variable-PC, contribution des variables aux PC, cos² des variables) nous pouvons commencer à identifier quelques caractéristiques de nos CP : 
+  - La PC1 : A une forte corrélation avec les montants remboursés globaux, le nombre de décompte, le nombre de bénéficiaire. On obtient les mêmes conclusions en observant les contributions des variables aux composantes et le cos² (qui représente la capacité de représentation de la variable de base dans l'espace des PC). 
+    => Cette variable représente l'information de l'activité globale de la pharmacie, sans trop de détails.
+    
+  - La PC2 : Est principalement portée par les montants moyen par beneficiaire et par ordonance.
+    => Cette variable semble décrire l'activité de la pharmacie à une echelle plus fine que la PC1.
+    
+  - La PC3 : Détient quasimment uniquement l'information des pourcentage de B2S (un type de flux) relatifs aux décomptes inf/sup à 180€. 
+    => C'est donc une variable centrée sur le comportement de communication de la pharmacie.
+  
+  - La PC4 : Se concentre sur la structure (en tant qu'établissement) de la pharmacie (active_tout2018_1 et nb_phies).
+  
+  - La PC5 : N'a qu'une variable contributrice, l'indicateur de surfacturation LPP.
+  
+  - Les PC6 et PC8 : Ont des comportements similaires mais opposés sur une variable. En effet pour les deux PC deux variables contribuent principalement à leur construction (le taux d'évolution journalier du CA entre le semestre de l'année n et le semestre de l'année n-1 et la part de montant remboursé hors région) avec un corrélation positive pour le taux d'évolution journalier mais une contribution positive pour PC6 et négative pour PC8 de la part de la variable des montants hors région. 
+  
+  - La PC7 : Comme la PC5 elle est uniquement décrite par l'indicateur de surfacturation médicament onéreux.
+  
+  - La PC9 : Canalyse l'information sur les montants remboursé PMR (préparation magistrale remboursable) qui ont les préparations réalisées directement par les pharmaciens à la suite d'une ordonnance nominative.
+  
+  - La PC10 : Quant à elle suit la variable taux_renouv qui est le taux de renouvellement $t_{renouv}=\frac{nb_{delivrance}-nb_{ordonnance}}{nb_{ordonnance}}$ qui est en gros le nombre de fois qu'une pharmacie se sert d'une même ordonnance pour délivrer des médicaments.
+
+```{r}
+acp_train=data.frame(rbind(acp2$ind$coord[,1:nb_acp],acp2$ind.sup$coord[(nrow(X_test)+1):nrow(acp2$ind.sup$coord),1:nb_acp]),top_sanction=c(data_train[-l,]$top_sanction,data_train[l,]$top_sanction))
+acp_test=data.frame(acp2$ind.sup$coord[1:nrow(X_test),1:nb_acp])
+
+
+rm(nb_acp,l,acp2,pca_tab_fin)
+```
+
+#Bibliographie : 
+
+https://learn.microsoft.com/fr-fr/azure/cognitive-services/language-service/custom-text-classification/concepts/evaluation-metrics : metrics
+https://towardsdatascience.com/the-5-classification-evaluation-metrics-you-must-know-aa97784ff226
+https://arxiv.org/abs/2010.16061 :  Powers, D. M. (2011). Evaluation: From Precision, Recall and F-Measure to ROC, Informedness, Markedness & Correlation. Journal of Machine Learning Technologies, 2(1), 37-63.
+        
+https://en.wikipedia.org/wiki/Correlation_coefficient : Pearson, Spearman, Kendall
+https://www.statisticssolutions.com/free-resources/directory-of-statistical-analyses/correlation-pearson-kendall-spearman/ : Pearson, Spearman, Kendall
+http://www.biostatistique.u-psud.fr/FTP_L2S4/Diaporamas_cours/AFC_2.pdf : Cramer's V
+http://grasland.script.univ-paris-diderot.fr/STAT98/stat98_6/stat98_6.htm
+http://ndl.ethernet.edu.et/bitstream/123456789/27185/1/Alvin%20C.%20Rencher_2012.pdf : Rencher, A. C. (2012). Methods of Multivariate Analysis. Wiley.
+
+http://www.sthda.com/french/articles/38-methodes-des-composantes-principales-dans-r-guide-pratique/ : Pour l'ACP sur R
+https://cran.r-project.org/web/packages/FactoMineR/index.html : Aide du package FactoMineR
+https://cran.r-project.org/web/packages/factoextra/index.html : Aide du package Factoextra
+https://rpkgs.datanovia.com/factoextra/index.html : Aide du package Factoextra
+http://wikistat.fr/pdf/st-l-des-multi
+http://wikistat.fr/pdf/st-m-explo-acp.pdf
+https://www.researchgate.net/publication/259596400_Principal_component_analysis_A_beginner%27s_guide_-_I_Introduction_and_application
+http://cda.psych.uiuc.edu/statistical_learning_course/Jolliffe%20I.%20Principal%20Component%20Analysis%20(2ed.,%20Springer,%202002)(518s)_MVsa_.pdf : Principal Component Analysis Ian Jolliffe
+
+
+https://medium.com/coinmonks/smote-and-adasyn-handling-imbalanced-data-set-34f5223e167
+https://kobia.fr/imbalanced-data-smote/
+http://www.diva-portal.org/smash/get/diva2:1108465/FULLTEXT02.pdf : A Comparison of Resampling Techniques to Handle the Class Imbalance Problem in Machine Learning,  MICHELLE JAGELID & MARIA MOVIN
+https://ieeexplore.ieee.org/iel7/6287639/9312710/09505667.pdf : A Comparative Performance Analysis of Data Resampling Methods on Imbalance Medical Data, MATLOOB KHUSHI & al.
+
+Evaluation Measures for Models Assessment over Imbalanced Data Sets de Mohamed Bekkar, Dr.Hassiba Kheliouane Djemaa, Dr.Taklit Akrouf Alitouche
+
+Understanding receiver operating characteristic (ROC) curves de Jerome Fan, Suneel Upadhye, Andrew Worster
+
+Learning When Data Sets are Imbalanced and When Costs are Unequal and Unknown de Marcus A. Maloof
+
+Understanding diagnostic tests 3: receiver operating characteristic curves de Anthony K Akobeng

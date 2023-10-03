@@ -1,0 +1,505 @@
+---
+title: "Tomek_Links"
+author: "Loïc LAFFINEUR"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r library, include=FALSE,warnings=F}
+#Manipulation : 
+library(dplyr)
+
+#Modèles de ML :
+library(randomForest) #RF ;
+library(rpart) #Arbre de decision ;
+library(xgboost) #XGBoost ;
+library(glmnet) #reg log
+library(class) #knn
+library(naivebayes)
+library(ranger) #randomforest
+library(kernlab) #Opti svmRad svmPoly
+library(e1071) #Algo de ML
+
+#Cross-validation(CV) :
+library(caret) #Split/Search/... ;
+library(caretEnsemble)
+
+library(MLmetrics) #Metriques d'évaluation
+library(ROSE)#roc.curve
+
+library(FNN)#Knn.index
+```
+
+
+```{r}
+load("intro_data.RData")
+rm(tab_ML)
+
+model_names=c("Regression logistique","K_NN","Naive Bayes","SVM RBF","SVM Polynomial","CART","Ranger","RandomForest","XGBoost")
+
+data_train$nb_phies=as.numeric(data_train$nb_phies)
+data_train$active_tout2018_1=as.numeric(data_train$active_tout2018_1)-1
+data_train$top_sanction=as.factor(make.names(data_train$top_sanction))
+
+acp_train$top_sanction=as.factor(make.names(acp_train$top_sanction))
+
+X_test$active_tout2018_1=as.numeric(X_test$active_tout2018_1)-1
+y_test=as.factor(make.names(y_test))
+
+#Partie TL : 
+
+R=cbind(1:nrow(data_train),knn.index(data_train[,-ncol(data_train)],k=1))
+res=cbind(R,data_train$top_sanction[R[,1]],data_train$top_sanction[R[,2]])
+colnames(res)=c("ind","PP","Class ind", "class PP")
+dif=res[res[,3]!=res[,4],1:4] #ceux avec un plus proche voisin de la classe opposée : 460 au total
+
+# Je supprime 
+tl_train=data_train[-c(dif[which(dif[,4]==2),2],dif[which(dif[,3]==2),1]),]
+table(tl_train$top_sanction)
+rm(R,res,dif)
+
+R=cbind(1:nrow(acp_train),knn.index(acp_train[,-ncol(acp_train)],k=1))
+res=cbind(R,acp_train$top_sanction[R[,1]],acp_train$top_sanction[R[,2]])
+colnames(res)=c("ind","PP","Class ind", "class PP")
+dif=res[res[,3]!=res[,4],1:4] #ceux avec un plus proche voisin de la classe opposée : 460 au total
+
+# Je supprime 
+tl_acp=acp_train[-c(dif[which(dif[,4]==2),2],dif[which(dif[,3]==2),1]),]
+table(tl_acp$top_sanction)
+rm(dif,res,R)
+```
+
+```{r}
+#Création de la base de donnée en bonne forme : 
+#Train : 
+x_tl=data.matrix(tl_train[,-ncol(tl_train)])
+x_tl_acp=data.matrix(tl_acp[,-ncol(tl_acp)])
+
+#Test : 
+test_data=data.matrix(X_test); test_data[,1]=test_data[,1]-1
+test_acp=data.matrix(acp_test)
+
+#Nos folds pour la CV :
+set.seed(12)
+folds_data=createFolds(tl_train$top_sanction,k=5)
+folds_acp=createFolds(tl_acp$top_sanction,k=5)
+
+#Règle de CV : 
+Control_data <- trainControl(method = "cv", number = 5, index=folds_data, search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F)
+
+Control_acp <- trainControl(method = "cv", number = 5, index=folds_acp, search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F)
+```
+
+```{r, entrainement des modèles avec CV,warning=F}
+set.seed(12)
+#Liste des modèles :
+start_time=Sys.time()
+model_list_tl <- caretList(trControl = Control_data, 
+                        tuneList = list(
+                          glm=caretModelSpec(x=x_tl, y=tl_train$top_sanction,
+                                             method="glmnet", tuneLength=300,
+                                             metric="ROC"),
+                          knn=caretModelSpec(x=x_tl, y=tl_train$top_sanction,
+                                             method="knn", tuneLength=300,
+                                             metric="ROC"), 
+                          naive_bayes=caretModelSpec(x=x_tl, y=tl_train$top_sanction,
+                                             method="naive_bayes", tuneLength=300,
+                                             metric="ROC"),
+                          svm_rad=caretModelSpec(x=x_tl, y=tl_train$top_sanction,
+                                             method="svmRadial", tuneLength=300,
+                                             metric="ROC"),
+                          svm_poly=caretModelSpec(x=x_tl, y=tl_train$top_sanction,
+                                             method="svmPoly", tuneLength=300,
+                                             metric="ROC"),
+                          rpart=caretModelSpec(x=x_tl, y=tl_train$top_sanction,
+                                             method="rpart2", tuneLength=300,
+                                             metric="ROC"),
+                          ranger=caretModelSpec(x=x_tl, y=tl_train$top_sanction,
+                                             method="ranger", tuneLength=500,
+                                             metric="ROC",verbose=F),
+                          rf=caretModelSpec(x=x_tl, y=tl_train$top_sanction,
+                                             method="rf", tuneLength=500,
+                                             metric="ROC"),
+                          xgbTree=caretModelSpec(x=x_tl, y=tl_train$top_sanction,
+                                             method="xgbTree", tuneLength=500,
+                                             metric="ROC",verbosity=0)
+                          ),
+                        continue_on_fail = FALSE, preProcess = c("center", "scale","nzv"))
+end_time=Sys.time()
+end_time-start_time #Time difference of 32.96596 mins
+
+
+#Liste des modèles :
+set.seed(12)
+start_time=Sys.time()
+model_list_tl_acp <- caretList(trControl = Control_acp, 
+                        tuneList = list(
+                          glm=caretModelSpec(x=x_tl_acp, y=tl_acp$top_sanction,
+                                             method="glmnet", tuneLength=300,
+                                             metric="ROC"),
+                          knn=caretModelSpec(x=x_tl_acp, y=tl_acp$top_sanction,
+                                             method="knn", tuneLength=300,
+                                             metric="ROC"), 
+                          naive_bayes=caretModelSpec(x=x_tl_acp, y=tl_acp$top_sanction,
+                                             method="naive_bayes", tuneLength=300,
+                                             metric="ROC"),
+                          svm_rad=caretModelSpec(x=x_tl_acp, y=tl_acp$top_sanction,
+                                             method="svmRadial", tuneLength=300,
+                                             metric="ROC"),
+                          svm_poly=caretModelSpec(x=x_tl_acp, y=tl_acp$top_sanction,
+                                             method="svmPoly", tuneLength=300,
+                                             metric="ROC"),
+                          rpart=caretModelSpec(x=x_tl_acp, y=tl_acp$top_sanction,
+                                             method="rpart2", tuneLength=300,
+                                             metric="ROC"),
+                          ranger=caretModelSpec(x=x_tl_acp, y=tl_acp$top_sanction,
+                                             method="ranger", tuneLength=500,
+                                             metric="ROC",verbose=F),
+                          rf=caretModelSpec(x=x_tl_acp, y=tl_acp$top_sanction,
+                                             method="rf", tuneLength=500,
+                                             metric="ROC"),
+                          xgbTree=caretModelSpec(x=x_tl_acp, y=tl_acp$top_sanction,
+                                             method="xgbTree", tuneLength=500,
+                                             metric="ROC")
+                          ),
+                        continue_on_fail = FALSE, preProcess = c("center", "scale","nzv"))
+end_time=Sys.time()
+end_time-start_time #Time difference of 27.12789 mins
+
+rm(end_time,start_time)
+```
+
+# Régression Logistique :
+
+```{r}
+Erreur(predict(model_list_tl$glm,x_tl),tl_train$top_sanction)
+Erreur(predict(model_list_tl$glm,test_data),y_test)
+Erreur(predict(model_list_tl_acp$glm,x_tl_acp),tl_acp$top_sanction)
+Erreur(predict(model_list_tl_acp$glm,test_acp),y_test)
+```
+
+Sous-apprentissage
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(tl_train$top_sanction,predict(model_list_tl$glm,x_tl),col=col[1],main="ROC Curve régression logistique")
+roc.curve(y_test,predict(model_list_tl$glm,test_data),add.roc = T,col=col[2])
+roc.curve(tl_acp$top_sanction,predict(model_list_tl_acp$glm,x_tl_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_tl_acp$glm,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r}
+### Importance des variables : 
+barplot(as.matrix(varImp(model_list_tl$glm)$importance)[,1],las=2,col=rainbow(ncol(tl_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_tl_acp$glm)$importance)[,1],las=2,col=rainbow(ncol(tl_acp)),main="Importance des variables (Avec ACP)")
+```
+
+# k-NN :
+
+```{r}
+Erreur(predict(model_list_tl$knn,x_tl),tl_train$top_sanction)
+Erreur(predict(model_list_tl$knn,test_data),y_test)
+Erreur(predict(model_list_tl_acp$knn,x_tl_acp),tl_acp$top_sanction)
+Erreur(predict(model_list_tl_acp$knn,test_acp),y_test)
+```
+
+Sur-apprentissage
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(tl_train$top_sanction,predict(model_list_tl$knn,x_tl),col=col[1],main="ROC Curve k-NN")
+roc.curve(y_test,predict(model_list_tl$knn,test_data),add.roc = T,col=col[2])
+roc.curve(tl_acp$top_sanction,predict(model_list_tl_acp$knn,x_tl_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_tl_acp$knn,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+# Importance des variables :
+barplot(as.matrix(varImp(model_list_tl$knn)$importance)[,1],las=2,col=rainbow(ncol(tl_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_tl_acp$knn)$importance)[,1],las=2,col=rainbow(ncol(tl_acp)),main="Importance des variables (Avec ACP)")
+```
+
+# Naive Bayes :
+
+```{r}
+Erreur(predict(model_list_tl$naive_bayes,x_tl),tl_train$top_sanction)
+Erreur(predict(model_list_tl$naive_bayes,test_data),y_test)
+Erreur(predict(model_list_tl_acp$naive_bayes,x_tl_acp),tl_acp$top_sanction)
+Erreur(predict(model_list_tl_acp$naive_bayes,test_acp),y_test)
+```
+
+Sous-apprentissage
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(tl_train$top_sanction,predict(model_list_tl$naive_bayes,x_tl),col=col[1],main="ROC Curve Naive Bayes")
+roc.curve(y_test,predict(model_list_tl$naive_bayes,test_data),add.roc = T,col=col[2])
+roc.curve(tl_acp$top_sanction,predict(model_list_tl_acp$naive_bayes,x_tl_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_tl_acp$naive_bayes,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_tl$naive_bayes)$importance)[,1],las=2,col=rainbow(ncol(tl_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_tl_acp$naive_bayes)$importance)[,1],las=2,col=rainbow(ncol(tl_acp)),main="Importance des variables (Avec ACP)")
+```
+
+# SVM : 
+
+## RBF : 
+
+```{r}
+Erreur(predict(model_list_tl$svm_rad,x_tl),tl_train$top_sanction)
+Erreur(predict(model_list_tl$svm_rad,test_data),y_test)
+Erreur(predict(model_list_tl_acp$svm_rad,x_tl_acp),tl_acp$top_sanction)
+Erreur(predict(model_list_tl_acp$svm_rad,test_acp),y_test)
+```
+
+Sur-apprentissage mais résultats quand même faible en train.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(tl_train$top_sanction,predict(model_list_tl$svm_rad,x_tl),col=col[1],main="ROC Curve SVM avec noyau RBF")
+roc.curve(y_test,predict(model_list_tl$svm_rad,test_data),add.roc = T,col=col[2])
+roc.curve(tl_acp$top_sanction,predict(model_list_tl_acp$svm_rad,x_tl_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_tl_acp$svm_rad,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_tl$svm_rad)$importance)[,1],las=2,col=rainbow(ncol(tl_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_tl_acp$svm_rad)$importance)[,1],las=2,col=rainbow(ncol(tl_acp)),main="Importance des variables (Avec ACP)")
+```
+
+## Polynomial : 
+
+```{r}
+Erreur(predict(model_list_tl$svm_poly,x_tl),tl_train$top_sanction)
+Erreur(predict(model_list_tl$svm_poly,test_data),y_test)
+Erreur(predict(model_list_tl_acp$svm_poly,x_tl_acp),tl_acp$top_sanction)
+Erreur(predict(model_list_tl_acp$svm_poly,test_acp),y_test)
+```
+
+Pareil qu'avant.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(tl_train$top_sanction,predict(model_list_tl$svm_poly,x_tl),col=col[1],main="ROC Curve SVM avec noyau Polynomial")
+roc.curve(y_test,predict(model_list_tl$svm_poly,test_data),add.roc = T,col=col[2])
+roc.curve(tl_acp$top_sanction,predict(model_list_tl_acp$svm_poly,x_tl_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_tl_acp$svm_poly,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_tl$svm_poly)$importance)[,1],las=2,col=rainbow(ncol(tl_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_tl_acp$svm_poly)$importance)[,1],las=2,col=rainbow(ncol(tl_acp)),main="Importance des variables (Avec ACP)")
+```
+
+# Decision Tree :
+
+```{r}
+Erreur(predict(model_list_tl$rpart,x_tl),tl_train$top_sanction)
+Erreur(predict(model_list_tl$rpart,test_data),y_test)
+Erreur(predict(model_list_tl_acp$rpart,x_tl_acp),tl_acp$top_sanction)
+Erreur(predict(model_list_tl_acp$rpart,test_acp),y_test)
+```
+
+Sur-apprentissage
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(tl_train$top_sanction,predict(model_list_tl$rpart,x_tl),col=col[1],main="ROC Curve CART")
+roc.curve(y_test,predict(model_list_tl$rpart,test_data),add.roc = T,col=col[2])
+roc.curve(tl_acp$top_sanction,predict(model_list_tl_acp$rpart,x_tl_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_tl_acp$rpart,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, plot_tree, fig.height=8}
+plot(model_list_tl$rpart$finalModel,uniform=T)
+text(model_list_tl$rpart$finalModel)
+
+plot(model_list_tl_acp$rpart$finalModel,uniform=T)
+text(model_list_tl_acp$rpart$finalModel)
+```
+
+```{r, importance_tree}
+barplot(as.matrix(varImp(model_list_tl$rpart)$importance)[,1],las=2,col=rainbow(ncol(tl_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_tl_acp$rpart)$importance)[,1],las=2,col=rainbow(ncol(tl_acp)),main="Importance des variables (Avec ACP)")
+```
+
+# Random Forest : 
+
+## randomForest : 
+
+```{r}
+Erreur(predict(model_list_tl$rf,x_tl),tl_train$top_sanction)
+Erreur(predict(model_list_tl$rf,test_data),y_test)
+Erreur(predict(model_list_tl_acp$rf,x_tl_acp),tl_acp$top_sanction)
+Erreur(predict(model_list_tl_acp$rf,test_acp),y_test)
+```
+
+SUr-apprentissage
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(tl_train$top_sanction,predict(model_list_tl$rf,x_tl),col=col[1],main="ROC Curve avec randomForest")
+roc.curve(y_test,predict(model_list_tl$rf,test_data),add.roc = T,col=col[2])
+roc.curve(tl_acp$top_sanction,predict(model_list_tl_acp$rf,x_tl_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_tl_acp$rf,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_tl$rf)$importance)[,1],las=2,col=rainbow(ncol(tl_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_tl_acp$rf)$importance)[,1],las=2,col=rainbow(ncol(tl_acp)),main="Importance des variables (Avec ACP)")
+```
+
+## Ranger : 
+
+```{r}
+Erreur(predict(model_list_tl$ranger,x_tl),tl_train$top_sanction)
+Erreur(predict(model_list_tl$ranger,test_data),y_test)
+Erreur(predict(model_list_tl_acp$ranger,x_tl_acp),tl_acp$top_sanction)
+Erreur(predict(model_list_tl_acp$ranger,test_acp),y_test)
+```
+
+Sur-apprentissage.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(tl_train$top_sanction,predict(model_list_tl$ranger,x_tl),col=col[1],main="ROC Curve avec Ranger")
+roc.curve(y_test,predict(model_list_tl$ranger,test_data),add.roc = T,col=col[2])
+roc.curve(tl_acp$top_sanction,predict(model_list_tl_acp$ranger,x_tl_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_tl_acp$ranger,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+# #Importance des variables
+# barplot(as.matrix(varImp(model_list_tl$ranger)$importance)[,1],las=2,col=rainbow(ncol(tl_train)),main="Importance des variables (Sans ACP)")
+# 
+# barplot(as.matrix(varImp(model_list_tl_acp$ranger)$importance)[,1],las=2,col=rainbow(ncol(tl_acp)),main="Importance des variables (Avec ACP)")
+```
+
+# XGBoost :
+
+```{r}
+Erreur(predict(model_list_tl$xgbTree,x_tl),tl_train$top_sanction)
+Erreur(predict(model_list_tl$xgbTree,test_data),y_test)
+Erreur(predict(model_list_tl_acp$xgbTree,x_tl_acp),tl_acp$top_sanction)
+Erreur(predict(model_list_tl_acp$xgbTree,test_acp),y_test)
+```
+
+SUr-apprentissage;
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(tl_train$top_sanction,predict(model_list_tl$xgbTree,x_tl),col=col[1],main="ROC Curve XGBoost")
+roc.curve(y_test,predict(model_list_tl$xgbTree,test_data),add.roc = T,col=col[2])
+roc.curve(tl_acp$top_sanction,predict(model_list_tl_acp$xgbTree,x_tl_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_tl_acp$xgbTree,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_tl$xgbTree)$importance)[,1],las=2,col=rainbow(ncol(tl_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_tl_acp$xgbTree)$importance)[,1],las=2,col=rainbow(ncol(tl_acp)),main="Importance des variables (Avec ACP)")
+```
+
+# Comparaison des modèles entre eux : 
+
+```{r, prediction sur le test}
+print("Sans ACP : ")
+print(model_names[1])
+Erreur(predict(model_list_tl$glm,test_data),y_test)
+print(model_names[2])
+Erreur(predict(model_list_tl$knn,test_data),y_test)
+print(model_names[3])
+Erreur(predict(model_list_tl$naive_bayes,test_data),y_test)
+print(model_names[4])
+Erreur(predict(model_list_tl$svm_rad,test_data),y_test)
+print(model_names[5])
+Erreur(predict(model_list_tl$svm_poly,test_data),y_test)
+print(model_names[6])
+Erreur(predict(model_list_tl$rpart,test_data),y_test)
+print(model_names[7])
+Erreur(predict(model_list_tl$ranger,test_data),y_test)
+print(model_names[8])
+Erreur(predict(model_list_tl$rf,test_data),y_test)
+print(model_names[9])
+Erreur(predict(model_list_tl$xgbTree,test_data),y_test)
+
+col=rainbow(9)
+roc.curve(y_test,predict(model_list_tl$glm,test_data),col=col[1],main="ROC Curve")
+roc.curve(y_test,predict(model_list_tl$knn,test_data),col=col[2],add.roc = T)
+roc.curve(y_test,predict(model_list_tl$naive_bayes,test_data),col=col[3],add.roc = T)
+roc.curve(y_test,predict(model_list_tl$svm_rad,test_data),col=col[4],add.roc = T)
+roc.curve(y_test,predict(model_list_tl$svm_poly,test_data),col=col[5],add.roc = T)
+roc.curve(y_test,predict(model_list_tl$rpart,test_data),col=col[6],add.roc = T)
+roc.curve(y_test,predict(model_list_tl$ranger,test_data),col=col[7],add.roc = T)
+roc.curve(y_test,predict(model_list_tl$rf,test_data),col=col[8],add.roc = T)
+roc.curve(y_test,predict(model_list_tl$xgbTree,test_data),col=col[9],add.roc = T)
+legend('bottomright',legend=model_names,col=col,lwd=2)
+
+for(i in 1:5){print("")}
+
+print("ACP : ")
+print(model_names[1])
+Erreur(predict(model_list_tl_acp$glm,test_acp),y_test)
+print(model_names[2])
+Erreur(predict(model_list_tl_acp$knn,test_acp),y_test)
+print(model_names[3])
+Erreur(predict(model_list_tl_acp$naive_bayes,test_acp),y_test)
+print(model_names[4])
+Erreur(predict(model_list_tl_acp$svm_rad,test_acp),y_test)
+print(model_names[5])
+Erreur(predict(model_list_tl_acp$svm_poly,test_acp),y_test)
+print(model_names[6])
+Erreur(predict(model_list_tl_acp$rpart,test_acp),y_test)
+print(model_names[7])
+Erreur(predict(model_list_tl_acp$ranger,test_acp),y_test)
+print(model_names[8])
+Erreur(predict(model_list_tl_acp$rf,test_acp),y_test)
+print(model_names[9])
+Erreur(predict(model_list_tl_acp$xgbTree,test_acp),y_test)
+
+roc.curve(y_test,predict(model_list_tl_acp$glm,test_acp),col=col[1],main="ROC Curve avec ACP")
+roc.curve(y_test,predict(model_list_tl_acp$knn,test_acp),col=col[2],add.roc = T)
+roc.curve(y_test,predict(model_list_tl_acp$naive_bayes,test_acp),col=col[3],add.roc = T)
+roc.curve(y_test,predict(model_list_tl_acp$svm_rad,test_acp),col=col[4],add.roc = T)
+roc.curve(y_test,predict(model_list_tl_acp$svm_poly,test_acp),col=col[5],add.roc = T)
+roc.curve(y_test,predict(model_list_tl_acp$rpart,test_acp),col=col[6],add.roc = T)
+roc.curve(y_test,predict(model_list_tl_acp$ranger,test_acp),col=col[7],add.roc = T)
+roc.curve(y_test,predict(model_list_tl_acp$rf,test_acp),col=col[8],add.roc = T)
+roc.curve(y_test,predict(model_list_tl_acp$xgbTree,test_acp),col=col[9],add.roc = T)
+legend('bottomright',legend=model_names,col=col,lwd=2)
+
+rm(col,i)
+```
+

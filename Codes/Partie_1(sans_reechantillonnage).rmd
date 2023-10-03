@@ -1,0 +1,586 @@
+---
+title: "Sans Rééchantillonnage"
+author: "Loïc LAFFINEUR"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+L'objectif de cette première partie est de se construire un benchmark, un groupe de modèle auquel comparer nos resultats suivant pour juger de l'amélioration ou non grâce aux méthodes utilisées.
+
+Dans toute la suite du projet nous allons utiliser une Random Search (avec 100 steps) pour l'optimisation de nos hyperparamètres.
+
+Pour la réalisation de la randomsearch nous allons utiliser les fonctions (train, trainControl, caretList) disponibles dans le package caret et nous aurons une phase de preprocessing dans laquelle nous allons centrer, réduire nos données ainsi que la suppression des modèles avec variance nulle (s'ils ne prédisent qu'une classe). L'étape de standardisation est une étape courante dans le machine learning afin de réduire le biais dans nos données et améliorer la convergence de nos algorithmes. 
+
+```{r library, include=FALSE,warnings=F}
+#Manipulation : 
+library(dplyr)
+
+#Modèles de ML :
+library(randomForest) #RF ;
+library(rpart) #Decision Tree ;
+library(xgboost) #XGBoost ;
+library(glmnet) #regression log
+library(class) #knn
+library(naivebayes)
+library(ranger) #randomforest
+library(kernlab) #svmPoly svmRad
+library(e1071) #Algo de ML
+
+#Autres pour ML :
+library(caret) #Split/Search/... ;
+library(caretEnsemble)
+
+library(MLmetrics) #Metriques d'évaluation*
+library(ROSE)#roc.curve
+```
+
+```{r, chargemetn des données}
+load("intro_data.RData")
+rm(tab_ML)
+model_names=c("Regression logistique","K_NN","Naive Bayes","SVM RBF","SVM Polynomial","CART","Ranger","RandomForest","XGBoost")
+```
+
+```{r, procedure pour CV}
+data_train$nb_phies=as.numeric(data_train$nb_phies)
+data_train$active_tout2018_1=as.numeric(data_train$active_tout2018_1)-1
+data_train$top_sanction=as.factor(make.names(data_train$top_sanction))
+
+acp_train$top_sanction=as.factor(make.names(acp_train$top_sanction))
+
+X_test$active_tout2018_1=as.numeric(X_test$active_tout2018_1)-1
+y_test=as.factor(make.names(y_test))
+
+#Création de la base de donnée en bonne forme : 
+#Train : 
+x_data=data.matrix(data_train[,-ncol(data_train)])
+x_acp=data.matrix(acp_train[,-ncol(acp_train)])
+
+#Test : 
+test_data=data.matrix(X_test); test_data[,1]=test_data[,1]-1
+test_acp=data.matrix(acp_test)
+
+#Nos folds pour la CV (cross-validation) :
+set.seed(12)
+folds_data=createFolds(data_train$top_sanction,k=5)
+folds_acp=createFolds(acp_train$top_sanction,k=5)
+
+#Règle de CV : 
+Control_data <- trainControl(method = "cv", number = 5, index=folds_data, search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F)
+
+Control_acp <- trainControl(method = "cv", number = 5, index=folds_acp, search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F)
+```
+
+```{r, entrainement des modèles avec CV,warning=F}
+set.seed(12)
+#Liste des modèles :
+start_time=Sys.time()
+model_list <- caretList(trControl = Control_data, 
+                        tuneList = list(
+                          glm=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="glmnet", tuneLength=300,
+                                             metric="ROC"),
+                          knn=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="knn", tuneLength=300,
+                                             metric="ROC"), 
+                          naive_bayes=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="naive_bayes", tuneLength=300,
+                                             metric="ROC"),
+                          svm_rad=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="svmRadial", tuneLength=300,
+                                             metric="ROC"),
+                          svm_poly=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="svmPoly", tuneLength=300,
+                                             metric="ROC"),
+                          rpart=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="rpart2", tuneLength=300,
+                                             metric="ROC"),
+                          ranger=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="ranger", tuneLength=500,
+                                             metric="ROC",verbose=F),
+                          rf=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="rf", tuneLength=500,
+                                             metric="ROC"),
+                          xgbTree=caretModelSpec(x=x_data, y=data_train$top_sanction,
+                                             method="xgbTree", tuneLength=500,
+                                             metric="ROC",verbosity=0)
+                          ),
+                        continue_on_fail = FALSE, preProcess = c("center", "scale","nzv"))
+end_time=Sys.time()
+end_time-start_time #Time difference of 39.81146 mins
+
+
+#Liste des modèles :
+set.seed(12)
+start_time=Sys.time()
+model_list_acp <- caretList(trControl = Control_acp, 
+                        tuneList = list(
+                          glm=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="glmnet", tuneLength=300,
+                                             metric="ROC"),
+                          knn=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="knn", tuneLength=300,
+                                             metric="ROC"), 
+                          naive_bayes=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="naive_bayes", tuneLength=300,
+                                             metric="ROC"),
+                          svm_rad=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="svmRadial", tuneLength=300,
+                                             metric="ROC"),
+                          svm_poly=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="svmPoly", tuneLength=300,
+                                             metric="ROC"),
+                          rpart=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="rpart2", tuneLength=300,
+                                             metric="ROC"),
+                          ranger=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="ranger", tuneLength=500,
+                                             metric="ROC",verbose=F),
+                          rf=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="rf", tuneLength=500,
+                                             metric="ROC"),
+                          xgbTree=caretModelSpec(x=x_acp, y=acp_train$top_sanction,
+                                             method="xgbTree", tuneLength=500,
+                                             metric="ROC")
+                          ),
+                        continue_on_fail = FALSE, preProcess = c("center", "scale","nzv"))
+end_time=Sys.time()
+end_time-start_time #Time difference of 38.08619 mins
+
+rm(start_time,end_time)
+```
+
+# Régression Logistique :
+
+```{r}
+Erreur(predict(model_list$glm,x_data),data_train$top_sanction)
+Erreur(predict(model_list$glm,test_data),y_test)
+Erreur(predict(model_list_acp$glm,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_acp$glm,test_acp),y_test)
+```
+
+Tous nos modèles de régression logistique sont en sous-apprentissage, aucun d'eux ne comprend réellement le comportement de la classe X0 (non-fraudeur). Ils predisent très peu d'individu comme appartenant à la classe X0 et lorsqu'ils le font il y a 50% de chance pour que ce soit un faux-négatif.
+
+Les résultats de la matrice de confusion sont confirmés par la faible valeur de F1-Score (moyenne harmonique entre Recall et Precision) et le faible $AUC_{ROC}$.
+
+Aucun des modèles n'est donc réellement très informatif.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list$glm,x_data),col=col[1],main="ROC Curve régression logistique")
+roc.curve(y_test,predict(model_list$glm,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_acp$glm,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_acp$glm,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r}
+### Importance des variables : 
+barplot(as.matrix(varImp(model_list$glm)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_acp$glm)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+Concernant l'importance que notre modèle accorde aux variables pour sa prédiction, dans le cas de l'ACP le modèle met le plus du poids aux PC5 (l'indicateur de surfacturation LPP), PC7 (l'indicateur de surfacturation médicament onéreux) et la PC9 (les montants remboursés PMR) qui sont 3 PCs représentées par une seule variable originale de notre table et qui correspondent à un très petit champ de ce que nous avons de disponible comme information.
+Le prédicteur sans ACP lui met de l'importance aux variables Mnt_rbs_M (Montant remboursé médicament), nb_decompte_sup180 (nombre de décompte supérieur à 180€) et mnt_tot_rbs_grpe_ge (Montant remboursé pour une liste de médicaments des groupes génériques retenus). Ces trois variables sont déjà plus informatifs et plus utilisables pour la recherche de fraude que les précédentes.
+
+# k-NN :
+
+```{r}
+Erreur(predict(model_list$knn,x_data),data_train$top_sanction)
+Erreur(predict(model_list$knn,test_data),y_test)
+Erreur(predict(model_list_acp$knn,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_acp$knn,test_acp),y_test)
+```
+
+Comme précédemment nous sommes dans un cas de sous-apprentissage sur tous nos modèles. Les F1-Scores sont légèrement supérieurs mais ce n'est pas significatif. Les $AUC_{ROC}$ ne sont pas bons non plus et on peut presque observer un léger sur-apprentissage car nous avons une baisse de capacité en notre train et notre test.
+
+Les K-NN ne sont pas informatifs.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list$knn,x_data),col=col[1],main="ROC Curve k-NN")
+roc.curve(y_test,predict(model_list$knn,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_acp$knn,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_acp$knn,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+# Importance des variables :
+barplot(as.matrix(varImp(model_list$knn)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_acp$knn)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+L'importance du modèle avec ACP est sur les PC9 (montants remboursé PMR), PC4 (la structure de la pharmacie) et PC5 (indicateur de surfacturation LPP) tandis que celle de celui sans ACP est plus sur les variables mnt_rbs_pa (Montant remboursé petit appareillage (LPP) non codé), estim_prejudice_mnt_remb (Indicateur de surfacturation médicaments groupes génériques) et part_mnt_bse_hs_region (Part du montant remboursé relatif aux bénéficiaires qui ne sont pas affiliés dans la région de la pharmacie).
+
+# Naive Bayes :
+
+```{r}
+Erreur(predict(model_list$naive_bayes,x_data),data_train$top_sanction)
+Erreur(predict(model_list$naive_bayes,test_data),y_test)
+Erreur(predict(model_list_acp$naive_bayes,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_acp$naive_bayes,test_acp),y_test)
+```
+
+Nos Naïve Bayes ont un comportement un peu différents de nos prédicteurs précédents même si la conclusion est la même : ils sous-apprennent et n'arrivent pas à comprendre nos classes. Là où nos modèles avaient tendance à fortement prédire la classe X1 et très peu la classe X0, nos Naïve Bayes eux sur-estiment notre classe X0 et obtiennet un très grand nombre de faux-négatif (X0 hors qu'ils sont X1 en réalité). 
+
+Au niveau des métrics elles sont relativement proche entre train et test et sont mauvaises partout : un $AUC_{ROC}$ quasiment à 0.5 (ce qui équivaut à un modèle aléatoire), un F1-Score à 0.5 alors qu'on le voudrait le plus proche de 1 possible.
+
+Les modèles de Naïve Bayes sur ces données ne sont pas utilisables.
+
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list$naive_bayes,x_data),col=col[1],main="ROC Curve Naive Bayes")
+roc.curve(y_test,predict(model_list$naive_bayes,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_acp$naive_bayes,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_acp$naive_bayes,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list$naive_bayes)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_acp$naive_bayes)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+Les variables les plus importantes pour le Naives Bayes avec ACP sont : PC9, PC4 et PC 5 comme pour les K-NN (ce qui nous prouve que l'importance des variables ne fait pas tout dans les capacités et les résultats du modèle). POur celui sans ACP ce sont les variables : mnt_rbs_pa (Montant remboursé Petit Appareillage (LPP non codé)), part_mnt_bse_hs_region et estim_prejudice_mnt_remb ce qui exactement ce que nous avions dans le cas des K-NN. 
+
+# SVM : 
+
+## RBF : 
+
+```{r}
+Erreur(predict(model_list$svm_rad,x_data),data_train$top_sanction)
+Erreur(predict(model_list$svm_rad,test_data),y_test)
+Erreur(predict(model_list_acp$svm_rad,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_acp$svm_rad,test_acp),y_test)
+```
+
+Concernant nos SVM avec noyau RBF, nous avons deux cas distinct mais dans lesquels nos modèles sous-apprennent encore une fois. Commençons par le modèle sur les données ACP, ce modèle sous-apprend totalement, prédit très peu la classe X0 et lorsqu'il le fait se trompe plus qu'il ne réussit. Il n'est pas utilisable.
+Le modèle entrainé sur les données sans ACP quant à lui sous-apprend aussi mais a plus de réussite sur la classe X0 car il se trompe qu'une fois sur 3 lorsqu'il la prédit, par contre c'est toujours pareil il ne la prédit que très peu comparé au nombre total d'individu appartenant réellement à cette classe. On va quand même considérer ce modèle utilisable car il est capable d'au moins faire une première séléction sur nos individus à aller regarder par contre un tier de ses prédictions de la classe X1 sont fausses ce qui n'est pas idéal. Nous aimerions un modèle capable d'éliminer les individus évidemment non-fraudeurs quite à avoir beaucoup de faux-positif car il devrait permettre de filtrer la liste des individus à regarder.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list$svm_rad,x_data),col=col[1],main="ROC Curve SVM avec noyau RBF")
+roc.curve(y_test,predict(model_list$svm_rad,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_acp$svm_rad,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_acp$svm_rad,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list$svm_rad)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_acp$svm_rad)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+Comme précédement les variables importantes pour l'ACP sont les PC9 ,PC4 et PC5. Sans l'ACP les variables jugées importantes à la prédiction sont mnt_rbs_pa, part_mnt_bse_hs_region et estim_prejudice_mnt_remb.
+
+## Polynomial : 
+
+```{r}
+Erreur(predict(model_list$svm_poly,x_data),data_train$top_sanction)
+Erreur(predict(model_list$svm_poly,test_data),y_test)
+Erreur(predict(model_list_acp$svm_poly,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_acp$svm_poly,test_acp),y_test)
+```
+
+Au même titre que les SVM RBF, les SVM polynomiaux sous-apprennent aussi et se comportent quasimment de la même façon, le SVM sur l'ACP est donc non utilisable et celui sur les données sans ACP est intéressant à garder même s'il sur-apprend légerement. 
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list$svm_poly,x_data),col=col[1],main="ROC Curve SVM avec noyau Polynomial")
+roc.curve(y_test,predict(model_list$svm_poly,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_acp$svm_poly,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_acp$svm_poly,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list$svm_poly)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_acp$svm_poly)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+Encore une fois les variables importantes sont les PC9, PC4 et PC5 et pour la table sans ACP mnt_rbs_pa, part_mnt_bse_hs_region et estim_prejudice_mnt_remb comme pour le svm avec noyau RBF.
+
+# Decision Tree :
+
+```{r}
+Erreur(predict(model_list$rpart,x_data),data_train$top_sanction)
+Erreur(predict(model_list$rpart,test_data),y_test)
+Erreur(predict(model_list_acp$rpart,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_acp$rpart,test_acp),y_test)
+```
+
+Nos arbres de décision, comme les modèles précédents, sous-apprennent fortement et sont pas très efficaces sur la classe X0.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list$rpart,x_data),col=col[1],main="ROC Curve CART")
+roc.curve(y_test,predict(model_list$rpart,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_acp$rpart,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_acp$rpart,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, plot_tree, fig.height=8}
+plot(model_list$rpart$finalModel,uniform=T)
+text(model_list$rpart$finalModel)
+
+plot(model_list_acp$rpart$finalModel,uniform=T)
+text(model_list_acp$rpart$finalModel)
+```
+
+A l'observation brute des arbres nos remarquons que l'arbre sur la table sans ACP est relativement profond : 11 coupes. L'origine principale du sur-apprentissage ou sous-apprentissage dans les cas d'arbre de décision vient du choix de la profondeur de l'arbre (ou en tout cas du critères d'arrêt qu'on se fixe à partir duquel nous arretons de developper notre arbre) ce qui peut sous-entendre que notre optimisation de paramètre est encore une fois mauvaise.
+
+```{r, importance_tree}
+barplot(as.matrix(varImp(model_list$rpart)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_acp$rpart)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+Le calcul de l'importance des variables nos arbres de décision nous montre que les PC10 (le taux de renouvellement), PC7(indicateur de surfacturation médicament onéreux) et PC9(montants remboursé PMR) ou part_mnt_bse_hs_region, mnt_rbs_l_p_ben (montant moyen LPP par bénéficiaire), taux_renouv (le taux de renouvellement). 
+
+# Random Forest : 
+
+## randomForest : 
+
+```{r}
+Erreur(predict(model_list$rf,x_data),data_train$top_sanction)
+Erreur(predict(model_list$rf,test_data),y_test)
+Erreur(predict(model_list_acp$rf,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_acp$rf,test_acp),y_test)
+```
+
+Comme on aurait pu s'y attendre pour nos modèles de RandomForest, ils overfittent totalement. C'est une chose courante dans le cas des algorithmes d'aggregation d'arbre car leur compléxité augmente très vite. Notre optimisation se fait par une RandomSearch à 500 combinaisons, l'algorithme à peut être pas trouvé de combinaison optimal pour éviter l'overfitting. L'algorithme n'est pas très efficace mais sur la table sans ACP ses résultats résultats sont relativement acceptables.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list$rf,x_data),col=col[1],main="ROC Curve avec randomForest")
+roc.curve(y_test,predict(model_list$rf,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_acp$rf,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_acp$rf,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list$rf)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_acp$rf)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+Les variables les plus utiles du point de vue d'une randomForest sont : PC9 (montants remboursé PMR), PC5 et PC10 (taux de renouvellement) ainsi que mnt_rbs_pmr, part_mnt_bse_hs_region et mnt_rbs_l_p_ben.
+
+## Ranger : 
+
+```{r}
+Erreur(predict(model_list$ranger,x_data),data_train$top_sanction)
+Erreur(predict(model_list$ranger,test_data),y_test)
+Erreur(predict(model_list_acp$ranger,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_acp$ranger,test_acp),y_test)
+```
+
+On obtient des résultats très proches de ceux obtenus avec la randomForest et les conclusions sont les mêmes.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list$ranger,x_data),col=col[1],main="ROC Curve avec Ranger")
+roc.curve(y_test,predict(model_list$ranger,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_acp$ranger,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_acp$ranger,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables : pas d'importance calculable à postériori pour ranger, utiliser l'argument importance= dans la fonction
+# barplot(as.matrix(varImp(model_list$ranger)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+# 
+# barplot(as.matrix(varImp(model_list_acp$ranger)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+Les PC3 (information des pourcentage de B2S relatifs aux décomptes inf/sup à 180€), PC9 et PC 10 et les variables mnt_rbs_pmr, part_mnt_bse_hs_region et mnt_rbs_pa sont celles qui ressortent le plus au niveau de leur apport aux modèles.
+
+# XGBoost :
+
+```{r}
+Erreur(predict(model_list$xgbTree,x_data),data_train$top_sanction)
+Erreur(predict(model_list$xgbTree,test_data),y_test)
+Erreur(predict(model_list_acp$xgbTree,x_acp),acp_train$top_sanction)
+Erreur(predict(model_list_acp$xgbTree,test_acp),y_test)
+```
+
+Comme pour nos modèles de Random Forest, les XGBoost sont des modèles qui ont souvent tendances à overfitter car ils ont beaucoup de paramètres à optimiser et leur complexité augmente très vite. Ici, les notre sur-apprennent et ont des résultats plutot mauvais en test mais au moins ils prédisent quand même la classe X0 contrairement à nos premier modèles qui ont tendance à éviter ca.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(data_train$top_sanction,predict(model_list$xgbTree,x_data),col=col[1],main="ROC Curve XGBoost")
+roc.curve(y_test,predict(model_list$xgbTree,test_data),add.roc = T,col=col[2])
+roc.curve(acp_train$top_sanction,predict(model_list_acp$xgbTree,x_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_acp$xgbTree,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list$xgbTree)$importance)[,1],las=2,col=rainbow(ncol(data_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_acp$xgbTree)$importance)[,1],las=2,col=rainbow(ncol(acp_train)),main="Importance des variables (Avec ACP)")
+```
+
+Les PC2 (montants moyen par beneficiaire et par ordonance), PC1(montants remboursés globaux) et PC3(pourcentage de B2S relatifs aux décomptes inf/sup à 180€) ressortent le plus pour la table avec ACP. Pour celle sans ACP ce sont les variables mnt_rbs_l_p_ben, mnt_rbs_pmr, mnt_rbs_pa et mnt_p_ord (montant moyen par ordonnance).
+
+# Comparaison des modèles entre eux : 
+
+```{r, prediction sur le test}
+print("Sans ACP : ")
+print(model_names[1])
+Erreur(predict(model_list$glm,test_data),y_test)
+print(model_names[2])
+Erreur(predict(model_list$knn,test_data),y_test)
+print(model_names[3])
+Erreur(predict(model_list$naive_bayes,test_data),y_test)
+print(model_names[4])
+Erreur(predict(model_list$svm_rad,test_data),y_test)
+print(model_names[5])
+Erreur(predict(model_list$svm_poly,test_data),y_test)
+print(model_names[6])
+Erreur(predict(model_list$rpart,test_data),y_test)
+print(model_names[7])
+Erreur(predict(model_list$ranger,test_data),y_test)
+print(model_names[8])
+Erreur(predict(model_list$rf,test_data),y_test)
+print(model_names[9])
+Erreur(predict(model_list$xgbTree,test_data),y_test)
+
+col=rainbow(9)
+roc.curve(y_test,predict(model_list$glm,test_data),col=col[1],main="ROC Curve")
+roc.curve(y_test,predict(model_list$knn,test_data),col=col[2],add.roc = T)
+roc.curve(y_test,predict(model_list$naive_bayes,test_data),col=col[3],add.roc = T)
+roc.curve(y_test,predict(model_list$svm_rad,test_data),col=col[4],add.roc = T)
+roc.curve(y_test,predict(model_list$svm_poly,test_data),col=col[5],add.roc = T)
+roc.curve(y_test,predict(model_list$rpart,test_data),col=col[6],add.roc = T)
+roc.curve(y_test,predict(model_list$ranger,test_data),col=col[7],add.roc = T)
+roc.curve(y_test,predict(model_list$rf,test_data),col=col[8],add.roc = T)
+roc.curve(y_test,predict(model_list$xgbTree,test_data),col=col[9],add.roc = T)
+legend('bottomright',legend=model_names,col=col,lwd=2)
+
+for(i in 1:5){print("")}
+
+print("ACP : ")
+print(model_names[1])
+Erreur(predict(model_list_acp$glm,test_acp),y_test)
+print(model_names[2])
+Erreur(predict(model_list_acp$knn,test_acp),y_test)
+print(model_names[3])
+Erreur(predict(model_list_acp$naive_bayes,test_acp),y_test)
+print(model_names[4])
+Erreur(predict(model_list_acp$svm_rad,test_acp),y_test)
+print(model_names[5])
+Erreur(predict(model_list_acp$svm_poly,test_acp),y_test)
+print(model_names[6])
+Erreur(predict(model_list_acp$rpart,test_acp),y_test)
+print(model_names[7])
+Erreur(predict(model_list_acp$ranger,test_acp),y_test)
+print(model_names[8])
+Erreur(predict(model_list_acp$rf,test_acp),y_test)
+print(model_names[9])
+Erreur(predict(model_list_acp$xgbTree,test_acp),y_test)
+
+roc.curve(y_test,predict(model_list_acp$glm,test_acp),col=col[1],main="ROC Curve avec ACP")
+roc.curve(y_test,predict(model_list_acp$knn,test_acp),col=col[2],add.roc = T)
+roc.curve(y_test,predict(model_list_acp$naive_bayes,test_acp),col=col[3],add.roc = T)
+roc.curve(y_test,predict(model_list_acp$svm_rad,test_acp),col=col[4],add.roc = T)
+roc.curve(y_test,predict(model_list_acp$svm_poly,test_acp),col=col[5],add.roc = T)
+roc.curve(y_test,predict(model_list_acp$rpart,test_acp),col=col[6],add.roc = T)
+roc.curve(y_test,predict(model_list_acp$ranger,test_acp),col=col[7],add.roc = T)
+roc.curve(y_test,predict(model_list_acp$rf,test_acp),col=col[8],add.roc = T)
+roc.curve(y_test,predict(model_list_acp$xgbTree,test_acp),col=col[9],add.roc = T)
+legend('bottomright',legend=model_names,col=col,lwd=2)
+
+rm(col,i)
+```
+
+## Les modèles acceptablees : 
+
+```{r}
+print(paste(model_names[4]," Sans ACP"))
+Erreur(predict(model_list$svm_rad,test_data),y_test)
+print(paste(model_names[5]," Sans ACP"))
+Erreur(predict(model_list$svm_poly,test_data),y_test)
+print(paste(model_names[7]," Sans ACP"))
+Erreur(predict(model_list$ranger,test_data),y_test)
+print(paste(model_names[8]," Sans ACP"))
+Erreur(predict(model_list$rf,test_data),y_test)
+print(paste(model_names[9]," Sans ACP"))
+Erreur(predict(model_list$xgbTree,test_data),y_test)
+
+col=rainbow(5)
+roc.curve(y_test,predict(model_list$svm_rad,test_data),col=col[1],main="ROC Curve")
+roc.curve(y_test,predict(model_list$svm_poly,test_data),col=col[2],add.roc = T)
+roc.curve(y_test,predict(model_list$ranger,test_data),col=col[3],add.roc = T)
+roc.curve(y_test,predict(model_list$rf,test_data),col=col[4],add.roc = T)
+roc.curve(y_test,predict(model_list$xgbTree,test_data),col=col[5],add.roc = T)
+legend('bottomright',legend=c("SVM RBF sans ACP","SVM Polynomial sans ACP","Ranger sans ACP","RandomForest sans ACP","XGBoost sans ACP"),col=col,lwd=2)
+```
+
+
+# Bibliographie :
+https://docs.aws.amazon.com/fr_fr/machine-learning/latest/dg/regression-model-insights.html
+
+https://larevueia.fr/3-methodes-pour-optimiser-les-hyperparametres-de-vos-modeles-de-machine-learning/
+https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.RandomizedSearchCV.html
+https://topepo.github.io/caret/model-training-and-tuning.html
+https://cran.r-project.org/web/packages/caret/index.html
+https://topepo.github.io/caret/pre-processing.html
+
+https://datascientest.com/regression-logistique-quest-ce-que-cest
+https://fr.wikipedia.org/wiki/R%C3%A9gression_logistique
+https://en.wikipedia.org/wiki/Elastic_net_regularization
+https://fr.wikipedia.org/wiki/Lasso_(statistiques)
+https://bookdown.org/egarpor/PM-UC3M/glm-deviance.html
+https://bookdown.org/egarpor/SSS2-UC3M/logreg-deviance.html
+
+https://mrmint.fr/naive-bayes-classifier
+https://fr.wikipedia.org/wiki/Classification_na%C3%AFve_bay%C3%A9sienne
+https://towardsdatascience.com/laplace-smoothing-in-na%C3%AFve-bayes-algorithm-9c237a8bdece
+
+https://towardsdatascience.com/hyperparameter-tuning-for-support-vector-machines-c-and-gamma-parameters-6a5097416167
+https://medium.com/@myselfaman12345/c-and-gamma-in-svm-e6cee48626be
+
+https://topepo.github.io/caret/variable-importance.html
+
+https://anarthal.github.io/kernel/posts/underfitting-overfitting/
+https://www.ibm.com/topics/underfitting
+
+https://topepo.github.io/caret/
+https://cran.r-project.org/web/packages/ROSE/index.html
+https://cran.r-project.org/web/packages/randomForest/index.html
+https://cran.r-project.org/web/packages/rpart/index.html
+https://cran.r-project.org/web/packages/xgboost/index.html
+https://cran.r-project.org/web/packages/glmnet/index.html
+https://cran.r-project.org/web/packages/class/index.html
+https://cran.r-project.org/web/packages/naivebayes/index.html
+https://cran.r-project.org/web/packages/ranger/index.html
+https://cran.r-project.org/web/packages/kernlab/index.html
+https://cran.r-project.org/web/packages/caret/index.html
+https://cran.r-project.org/web/packages/caretEnsemble/index.html
+https://cran.r-project.org/web/packages/e1071/index.html
+https://cran.r-project.org/web/packages/MLmetrics/index.html
+https://cran.r-project.org/web/packages/ROSE/index.html
+https://cran.r-project.org/web/packages/DiagrammeR/index.html

@@ -1,0 +1,527 @@
+---
+title: "SMOTE3"
+author: "Laffineur Loïc"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r library, include=FALSE}
+#Manipulation : 
+library(dplyr)
+
+#Modèles de ML :
+library(randomForest) #RF ;
+library(rpart) #CART ;
+library(xgboost) #XGBoost ;
+library(glmnet)
+library(class)
+library(naivebayes)
+library(ranger)
+library(kernlab)
+library(e1071) #Algo de ML
+
+#Autres pour ML :
+library(caret) #Split/Search/... ;
+library(caretEnsemble)
+
+library(MLmetrics) #Metriques d'évaluation
+library(ROSE)
+
+library(smotefamily)
+```
+
+```{r, mat_model_names}
+load("intro_data.RData")
+rm(tab_ML)
+model_names=c("Regression logistique","K_NN","Naive Bayes","SVM RBF","SVM Polynomial","CART","Ranger","RandomForest","XGBoost")
+```
+
+# Création de la table : 
+
+```{r, SMOTE}
+#Modification des données pour smote 
+data_train$nb_phies=as.numeric(data_train$nb_phies)
+data_train$active_tout2018_1=as.numeric(data_train$active_tout2018_1)-1
+data_train$top_sanction=as.factor(make.names(data_train$top_sanction))
+
+X_test$active_tout2018_1=as.numeric(X_test$active_tout2018_1)-1
+
+acp_train$top_sanction=as.factor(make.names(acp_train$top_sanction))
+
+#Package smotefamily
+set.seed(12)
+smote_=SMOTE(data_train[,-ncol(data_train)],data_train$top_sanction,
+             dup_size = as.numeric(table(data_train$top_sanction)[2]/table(data_train$top_sanction)[1]),
+             K=3)
+colnames(smote_$syn_data)[ncol(smote_$syn_data)]="top_sanction"
+
+set.seed(12)
+k=sample(nrow(smote_$syn_data), 
+         size = as.numeric(table(data_train$top_sanction)[2]-table(data_train$top_sanction)[1]))
+smote_train3=rbind(data_train,smote_$syn_data[k,])
+
+table(smote_train3$top_sanction)
+rm(k)
+
+#ACP
+set.seed(12)
+smote_=SMOTE(acp_train[,-ncol(acp_train)],acp_train$top_sanction,
+             dup_size = as.numeric(table(acp_train$top_sanction)[2]/table(acp_train$top_sanction)[1]),
+             K=3)
+colnames(smote_$syn_data)[ncol(smote_$syn_data)]="top_sanction"
+
+set.seed(12)
+k=sample(nrow(smote_$syn_data), 
+         size = as.numeric(table(acp_train$top_sanction)[2]-table(acp_train$top_sanction)[1]))
+smote_acp3=rbind(acp_train,smote_$syn_data[k,])
+rm(k,smote_)
+```
+
+```{r, procedure pour CV}
+smote_train3$nb_phies=as.numeric(smote_train3$nb_phies)
+smote_train3$active_tout2018_1=as.numeric(smote_train3$active_tout2018_1)-1
+smote_train3$top_sanction=as.factor(make.names(smote_train3$top_sanction))
+
+smote_acp3$top_sanction=as.factor(make.names(smote_acp3$top_sanction))
+
+X_test$active_tout2018_1=as.numeric(X_test$active_tout2018_1)-1
+y_test=as.factor(make.names(y_test))
+
+#Création de la base de donnée en bonne forme : 
+#Train : 
+x_smote=data.matrix(smote_train3[,-ncol(smote_train3)])
+x_smote_acp=data.matrix(smote_acp3[,-ncol(smote_acp3)])
+
+#Test : 
+test_data=data.matrix(X_test); test_data[,1]=test_data[,1]-1
+test_acp=data.matrix(acp_test)
+
+#Nos folds pour la CV :
+set.seed(12)
+folds_data=createFolds(smote_train3$top_sanction,k=5)
+folds_acp=createFolds(smote_acp3$top_sanction,k=5)
+
+#Règle de CV : 
+Control_data <- trainControl(method = "cv", number = 5, index=folds_data, search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F)
+
+Control_acp <- trainControl(method = "cv", number = 5, index=folds_acp, search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F)
+```
+
+```{r, entrainement des modèles avec CV,warning=F}
+set.seed(12)
+#Liste des modèles :
+start_time=Sys.time()
+model_list_smote3 <- caretList(trControl = Control_data, 
+                        tuneList = list(
+                          glm=caretModelSpec(x=x_smote, y=smote_train3$top_sanction,
+                                             method="glmnet", tuneLength=300,
+                                             metric="ROC"),
+                          knn=caretModelSpec(x=x_smote, y=smote_train3$top_sanction,
+                                             method="knn", tuneLength=300,
+                                             metric="ROC"), 
+                          naive_bayes=caretModelSpec(x=x_smote, y=smote_train3$top_sanction,
+                                             method="naive_bayes", tuneLength=300,
+                                             metric="ROC"),
+                          svm_rad=caretModelSpec(x=x_smote, y=smote_train3$top_sanction,
+                                             method="svmRadial", tuneLength=300,
+                                             metric="ROC"),
+                          svm_poly=caretModelSpec(x=x_smote, y=smote_train3$top_sanction,
+                                             method="svmPoly", tuneLength=300,
+                                             metric="ROC"),
+                          rpart=caretModelSpec(x=x_smote, y=smote_train3$top_sanction,
+                                             method="rpart2", tuneLength=300,
+                                             metric="ROC"),
+                          ranger=caretModelSpec(x=x_smote, y=smote_train3$top_sanction,
+                                             method="ranger", tuneLength=500,
+                                             metric="ROC",verbose=F),
+                          rf=caretModelSpec(x=x_smote, y=smote_train3$top_sanction,
+                                             method="rf", tuneLength=500,
+                                             metric="ROC"),
+                          xgbTree=caretModelSpec(x=x_smote, y=smote_train3$top_sanction,
+                                             method="xgbTree", tuneLength=500,
+                                             metric="ROC",verbosity=0)
+                          ),
+                        continue_on_fail = FALSE, preProcess = c("center", "scale","nzv"))
+end_time=Sys.time()
+end_time-start_time #Time difference of 50.11716 mins
+
+
+#Liste des modèles :
+set.seed(12)
+start_time=Sys.time()
+model_list_smote_acp3 <- caretList(trControl = Control_acp, 
+                        tuneList = list(
+                          glm=caretModelSpec(x=x_smote_acp, y=smote_acp3$top_sanction,
+                                             method="glmnet", tuneLength=300,
+                                             metric="ROC"),
+                          knn=caretModelSpec(x=x_smote_acp, y=smote_acp3$top_sanction,
+                                             method="knn", tuneLength=300,
+                                             metric="ROC"), 
+                          naive_bayes=caretModelSpec(x=x_smote_acp, y=smote_acp3$top_sanction,
+                                             method="naive_bayes", tuneLength=300,
+                                             metric="ROC"),
+                          svm_rad=caretModelSpec(x=x_smote_acp, y=smote_acp3$top_sanction,
+                                             method="svmRadial", tuneLength=300,
+                                             metric="ROC"),
+                          svm_poly=caretModelSpec(x=x_smote_acp, y=smote_acp3$top_sanction,
+                                             method="svmPoly", tuneLength=300,
+                                             metric="ROC"),
+                          rpart=caretModelSpec(x=x_smote_acp, y=smote_acp3$top_sanction,
+                                             method="rpart2", tuneLength=300,
+                                             metric="ROC"),
+                          ranger=caretModelSpec(x=x_smote_acp, y=smote_acp3$top_sanction,
+                                             method="ranger", tuneLength=500,
+                                             metric="ROC",verbose=F),
+                          rf=caretModelSpec(x=x_smote_acp, y=smote_acp3$top_sanction,
+                                             method="rf", tuneLength=500,
+                                             metric="ROC"),
+                          xgbTree=caretModelSpec(x=x_smote_acp, y=smote_acp3$top_sanction,
+                                             method="xgbTree", tuneLength=500,
+                                             metric="ROC")
+                          ),
+                        continue_on_fail = FALSE, preProcess = c("center", "scale","nzv"))
+end_time=Sys.time()
+end_time-start_time #Time difference of 43.81577 mins
+
+rm(end_time,start_time)
+```
+
+# Régression Logistique :
+
+```{r}
+Erreur(predict(model_list_smote3$glm,x_smote),smote_train3$top_sanction)
+Erreur(predict(model_list_smote3$glm,test_data),y_test)
+Erreur(predict(model_list_smote_acp3$glm,x_smote_acp),smote_acp3$top_sanction)
+Erreur(predict(model_list_smote_acp3$glm,test_acp),y_test)
+```
+
+Underfitting
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(smote_train3$top_sanction,predict(model_list_smote3$glm,x_smote),col=col[1],main="ROC Curve régression logistique")
+roc.curve(y_test,predict(model_list_smote3$glm,test_data),add.roc = T,col=col[2])
+roc.curve(smote_acp3$top_sanction,predict(model_list_smote_acp3$glm,x_smote_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_smote_acp3$glm,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r}
+### Importance des variables : 
+barplot(as.matrix(varImp(model_list_smote3$glm)$importance)[,1],las=2,col=rainbow(ncol(smote_train3)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_smote_acp3$glm)$importance)[,1],las=2,col=rainbow(ncol(smote_acp3)),main="Importance des variables (Avec ACP)")
+```
+
+# k-NN :
+
+```{r}
+Erreur(predict(model_list_smote3$knn,x_smote),smote_train3$top_sanction)
+Erreur(predict(model_list_smote3$knn,test_data),y_test)
+Erreur(predict(model_list_smote_acp3$knn,x_smote_acp),smote_acp3$top_sanction)
+Erreur(predict(model_list_smote_acp3$knn,test_acp),y_test)
+```
+
+Underfitting, precision faible
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(smote_train3$top_sanction,predict(model_list_smote3$knn,x_smote),col=col[1],main="ROC Curve k-NN")
+roc.curve(y_test,predict(model_list_smote3$knn,test_data),add.roc = T,col=col[2])
+roc.curve(smote_acp3$top_sanction,predict(model_list_smote_acp3$knn,x_smote_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_smote_acp3$knn,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+# Importance des variables :
+barplot(as.matrix(varImp(model_list_smote3$knn)$importance)[,1],las=2,col=rainbow(ncol(smote_train3)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_smote_acp3$knn)$importance)[,1],las=2,col=rainbow(ncol(smote_acp3)),main="Importance des variables (Avec ACP)")
+```
+
+# Naive Bayes :
+
+```{r}
+Erreur(predict(model_list_smote3$naive_bayes,x_smote),smote_train3$top_sanction)
+Erreur(predict(model_list_smote3$naive_bayes,test_data),y_test)
+Erreur(predict(model_list_smote_acp3$naive_bayes,x_smote_acp),smote_acp3$top_sanction)
+Erreur(predict(model_list_smote_acp3$naive_bayes,test_acp),y_test)
+```
+
+Underfitting
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(smote_train3$top_sanction,predict(model_list_smote3$naive_bayes,x_smote),col=col[1],main="ROC Curve Naive Bayes")
+roc.curve(y_test,predict(model_list_smote3$naive_bayes,test_data),add.roc = T,col=col[2])
+roc.curve(smote_acp3$top_sanction,predict(model_list_smote_acp3$naive_bayes,x_smote_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_smote_acp3$naive_bayes,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_smote3$naive_bayes)$importance)[,1],las=2,col=rainbow(ncol(smote_train3)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_smote_acp3$naive_bayes)$importance)[,1],las=2,col=rainbow(ncol(smote_acp3)),main="Importance des variables (Avec ACP)")
+```
+
+# SVM : 
+
+## RBF : 
+
+```{r}
+Erreur(predict(model_list_smote3$svm_rad,x_smote),smote_train3$top_sanction)
+Erreur(predict(model_list_smote3$svm_rad,test_data),y_test)
+Erreur(predict(model_list_smote_acp3$svm_rad,x_smote_acp),smote_acp3$top_sanction)
+Erreur(predict(model_list_smote_acp3$svm_rad,test_acp),y_test)
+```
+
+Overfitting
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(smote_train3$top_sanction,predict(model_list_smote3$svm_rad,x_smote),col=col[1],main="ROC Curve SVM avec noyau RBF")
+roc.curve(y_test,predict(model_list_smote3$svm_rad,test_data),add.roc = T,col=col[2])
+roc.curve(smote_acp3$top_sanction,predict(model_list_smote_acp3$svm_rad,x_smote_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_smote_acp3$svm_rad,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_smote3$svm_rad)$importance)[,1],las=2,col=rainbow(ncol(smote_train3)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_smote_acp3$svm_rad)$importance)[,1],las=2,col=rainbow(ncol(smote_acp3)),main="Importance des variables (Avec ACP)")
+```
+
+## Polynomial : 
+
+```{r}
+Erreur(predict(model_list_smote3$svm_poly,x_smote),smote_train3$top_sanction)
+Erreur(predict(model_list_smote3$svm_poly,test_data),y_test)
+Erreur(predict(model_list_smote_acp3$svm_poly,x_smote_acp),smote_acp3$top_sanction)
+Erreur(predict(model_list_smote_acp3$svm_poly,test_acp),y_test)
+```
+
+Overfitting
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(smote_train3$top_sanction,predict(model_list_smote3$svm_poly,x_smote),col=col[1],main="ROC Curve SVM avec noyau Polynomial")
+roc.curve(y_test,predict(model_list_smote3$svm_poly,test_data),add.roc = T,col=col[2])
+roc.curve(smote_acp3$top_sanction,predict(model_list_smote_acp3$svm_poly,x_smote_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_smote_acp3$svm_poly,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_smote3$svm_poly)$importance)[,1],las=2,col=rainbow(ncol(smote_train3)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_smote_acp3$svm_poly)$importance)[,1],las=2,col=rainbow(ncol(smote_acp3)),main="Importance des variables (Avec ACP)")
+```
+
+# Decision Tree :
+
+```{r}
+Erreur(predict(model_list_smote3$rpart,x_smote),smote_train3$top_sanction)
+Erreur(predict(model_list_smote3$rpart,test_data),y_test)
+Erreur(predict(model_list_smote_acp3$rpart,x_smote_acp),smote_acp3$top_sanction)
+Erreur(predict(model_list_smote_acp3$rpart,test_acp),y_test)
+```
+
+Sur-apprentissage et sous-apprentissage
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(smote_train3$top_sanction,predict(model_list_smote3$rpart,x_smote),col=col[1],main="ROC Curve CART")
+roc.curve(y_test,predict(model_list_smote3$rpart,test_data),add.roc = T,col=col[2])
+roc.curve(smote_acp3$top_sanction,predict(model_list_smote_acp3$rpart,x_smote_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_smote_acp3$rpart,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, plot_tree, fig.height=8}
+plot(model_list_smote3$rpart$finalModel,uniform=T)
+text(model_list_smote3$rpart$finalModel)
+
+plot(model_list_smote_acp3$rpart$finalModel,uniform=T)
+text(model_list_smote_acp3$rpart$finalModel)
+```
+
+```{r, importance_tree}
+barplot(as.matrix(varImp(model_list_smote3$rpart)$importance)[,1],las=2,col=rainbow(ncol(smote_train3)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_smote_acp3$rpart)$importance)[,1],las=2,col=rainbow(ncol(smote_acp3)),main="Importance des variables (Avec ACP)")
+```
+
+# Random Forest : 
+
+## randomForest : 
+
+```{r}
+Erreur(predict(model_list_smote3$rf,x_smote),smote_train3$top_sanction)
+Erreur(predict(model_list_smote3$rf,test_data),y_test)
+Erreur(predict(model_list_smote_acp3$rf,x_smote_acp),smote_acp3$top_sanction)
+Erreur(predict(model_list_smote_acp3$rf,test_acp),y_test)
+```
+
+Overfitting, résultats pas terribles
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(smote_train3$top_sanction,predict(model_list_smote3$rf,x_smote),col=col[1],main="ROC Curve avec randomForest")
+roc.curve(y_test,predict(model_list_smote3$rf,test_data),add.roc = T,col=col[2])
+roc.curve(smote_acp3$top_sanction,predict(model_list_smote_acp3$rf,x_smote_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_smote_acp3$rf,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_smote3$rf)$importance)[,1],las=2,col=rainbow(ncol(smote_train3)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_smote_acp3$rf)$importance)[,1],las=2,col=rainbow(ncol(smote_acp3)),main="Importance des variables (Avec ACP)")
+```
+
+## Ranger : 
+
+```{r}
+Erreur(predict(model_list_smote3$ranger,x_smote),smote_train3$top_sanction)
+Erreur(predict(model_list_smote3$ranger,test_data),y_test)
+Erreur(predict(model_list_smote_acp3$ranger,x_smote_acp),smote_acp3$top_sanction)
+Erreur(predict(model_list_smote_acp3$ranger,test_acp),y_test)
+```
+
+Overfitting et mauvais résultats en test
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(smote_train3$top_sanction,predict(model_list_smote3$ranger,x_smote),col=col[1],main="ROC Curve avec Ranger")
+roc.curve(y_test,predict(model_list_smote3$ranger,test_data),add.roc = T,col=col[2])
+roc.curve(smote_acp3$top_sanction,predict(model_list_smote_acp3$ranger,x_smote_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_smote_acp3$ranger,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+# #Importance des variables
+# barplot(as.matrix(varImp(model_list_smote3$ranger)$importance)[,1],las=2,col=rainbow(ncol(smote_train3)),main="Importance des variables (Sans ACP)")
+# 
+# barplot(as.matrix(varImp(model_list_smote_acp3$ranger)$importance)[,1],las=2,col=rainbow(ncol(smote_acp3)),main="Importance des variables (Avec ACP)")
+```
+
+# XGBoost :
+
+```{r}
+Erreur(predict(model_list_smote3$xgbTree,x_smote),smote_train3$top_sanction)
+Erreur(predict(model_list_smote3$xgbTree,test_data),y_test)
+Erreur(predict(model_list_smote_acp3$xgbTree,x_smote_acp),smote_acp3$top_sanction)
+Erreur(predict(model_list_smote_acp3$xgbTree,test_acp),y_test)
+```
+
+Overfitting et mauvais résultats en test.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(smote_train3$top_sanction,predict(model_list_smote3$xgbTree,x_smote),col=col[1],main="ROC Curve XGBoost")
+roc.curve(y_test,predict(model_list_smote3$xgbTree,test_data),add.roc = T,col=col[2])
+roc.curve(smote_acp3$top_sanction,predict(model_list_smote_acp3$xgbTree,x_smote_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_smote_acp3$xgbTree,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_smote3$xgbTree)$importance)[,1],las=2,col=rainbow(ncol(smote_train3)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_smote_acp3$xgbTree)$importance)[,1],las=2,col=rainbow(ncol(smote_acp3)),main="Importance des variables (Avec ACP)")
+```
+
+# Comparaison des modèles entre eux : 
+
+```{r, prediction sur le test}
+print("Sans ACP : ")
+print(model_names[1])
+Erreur(predict(model_list_smote3$glm,test_data),y_test)
+print(model_names[2])
+Erreur(predict(model_list_smote3$knn,test_data),y_test)
+print(model_names[3])
+Erreur(predict(model_list_smote3$naive_bayes,test_data),y_test)
+print(model_names[4])
+Erreur(predict(model_list_smote3$svm_rad,test_data),y_test)
+print(model_names[5])
+Erreur(predict(model_list_smote3$svm_poly,test_data),y_test)
+print(model_names[6])
+Erreur(predict(model_list_smote3$rpart,test_data),y_test)
+print(model_names[7])
+Erreur(predict(model_list_smote3$ranger,test_data),y_test)
+print(model_names[8])
+Erreur(predict(model_list_smote3$rf,test_data),y_test)
+print(model_names[9])
+Erreur(predict(model_list_smote3$xgbTree,test_data),y_test)
+
+col=rainbow(9)
+roc.curve(y_test,predict(model_list_smote3$glm,test_data),col=col[1],main="ROC Curve")
+roc.curve(y_test,predict(model_list_smote3$knn,test_data),col=col[2],add.roc = T)
+roc.curve(y_test,predict(model_list_smote3$naive_bayes,test_data),col=col[3],add.roc = T)
+roc.curve(y_test,predict(model_list_smote3$svm_rad,test_data),col=col[4],add.roc = T)
+roc.curve(y_test,predict(model_list_smote3$svm_poly,test_data),col=col[5],add.roc = T)
+roc.curve(y_test,predict(model_list_smote3$rpart,test_data),col=col[6],add.roc = T)
+roc.curve(y_test,predict(model_list_smote3$ranger,test_data),col=col[7],add.roc = T)
+roc.curve(y_test,predict(model_list_smote3$rf,test_data),col=col[8],add.roc = T)
+roc.curve(y_test,predict(model_list_smote3$xgbTree,test_data),col=col[9],add.roc = T)
+legend('bottomright',legend=model_names,col=col,lwd=2)
+
+for(i in 1:5){print("")}
+
+print("ACP : ")
+print(model_names[1])
+Erreur(predict(model_list_smote_acp3$glm,test_acp),y_test)
+print(model_names[2])
+Erreur(predict(model_list_smote_acp3$knn,test_acp),y_test)
+print(model_names[3])
+Erreur(predict(model_list_smote_acp3$naive_bayes,test_acp),y_test)
+print(model_names[4])
+Erreur(predict(model_list_smote_acp3$svm_rad,test_acp),y_test)
+print(model_names[5])
+Erreur(predict(model_list_smote_acp3$svm_poly,test_acp),y_test)
+print(model_names[6])
+Erreur(predict(model_list_smote_acp3$rpart,test_acp),y_test)
+print(model_names[7])
+Erreur(predict(model_list_smote_acp3$ranger,test_acp),y_test)
+print(model_names[8])
+Erreur(predict(model_list_smote_acp3$rf,test_acp),y_test)
+print(model_names[9])
+Erreur(predict(model_list_smote_acp3$xgbTree,test_acp),y_test)
+
+roc.curve(y_test,predict(model_list_smote_acp3$glm,test_acp),col=col[1],main="ROC Curve avec ACP")
+roc.curve(y_test,predict(model_list_smote_acp3$knn,test_acp),col=col[2],add.roc = T)
+roc.curve(y_test,predict(model_list_smote_acp3$naive_bayes,test_acp),col=col[3],add.roc = T)
+roc.curve(y_test,predict(model_list_smote_acp3$svm_rad,test_acp),col=col[4],add.roc = T)
+roc.curve(y_test,predict(model_list_smote_acp3$svm_poly,test_acp),col=col[5],add.roc = T)
+roc.curve(y_test,predict(model_list_smote_acp3$rpart,test_acp),col=col[6],add.roc = T)
+roc.curve(y_test,predict(model_list_smote_acp3$ranger,test_acp),col=col[7],add.roc = T)
+roc.curve(y_test,predict(model_list_smote_acp3$rf,test_acp),col=col[8],add.roc = T)
+roc.curve(y_test,predict(model_list_smote_acp3$xgbTree,test_acp),col=col[9],add.roc = T)
+legend('bottomright',legend=model_names,col=col,lwd=2)
+
+rm(col,i)
+```
+
+
+
+# Bibliographie :
+
+https://kobia.fr/imbalanced-data-smote/

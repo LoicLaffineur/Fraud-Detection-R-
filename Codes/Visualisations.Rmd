@@ -1,0 +1,266 @@
+---
+title: "Visualisations des différents ensembles"
+author: "Laffineur Loïc"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r,warning=F}
+library(readxl)
+library(dplyr)
+```
+
+# Visualisation données brutes : 
+
+```{r, resume tab_pha}
+# tab_pha_2018 <- read_sas('tab_eval_phie_2018.sas7bdat') #Serveur
+# tab_pha_2018 <- read_excel('C:/Users/laffi/Desktop/tab_eval_phie_2018.xlsx') #Perso
+tab_pha_2018 <- read_excel('C:/Users/LAFFINEUR-31361/Documents/tab_eval_phie_2018.xlsx') #Local
+
+summary(tab_pha_2018)
+glimpse(tab_pha_2018)
+
+rm(tab_pha_2018)
+```
+
+# Visualisation des variables utilisées pour le machine learning : 
+
+```{r visualisation en plots des données}
+load("intro_data.RData")
+rm(data_train,acp_train,X_test,acp_test,Erreur,y_test)
+attach(tab_ML)
+
+summary(tab_ML)
+glimpse(tab_ML)
+
+#Toutes les variables "catégorielles" nb_phies, top_sanction, active_tout_2018.
+for(i in c(1,2,27)){
+  barplot(table(tab_ML[,i]),col=rainbow(length(table(tab_ML[,i]))),main=colnames(tab_ML[,i]))
+  legend('topleft',legend=table(tab_ML[,i]),pch=2,col=rainbow(length(table(tab_ML[,i]))))
+  pie(table(tab_ML[,i]),col=rainbow(length(table(tab_ML[,i]))),main=colnames(tab_ML[,i]))
+  legend('topleft',legend=table(tab_ML[,i]),pch=2,col=rainbow(length(table(tab_ML[,i]))))
+}
+
+#Variable continues : tout le reste sauf 26
+for(i in 3:25){ 
+  par(mfrow=c(1,2))
+  boxplot(as.matrix(tab_ML[,i]),main=names(tab_ML)[i])
+  hist(as.matrix(tab_ML[,i]),main=names(tab_ML)[i],
+       breaks=50,xlab="",ylab="")
+  print(summary(tab_ML[,i]))
+  par(mfrow=c(1,1))
+}
+
+i=26
+par(mfrow=c(1,2))
+boxplot(as.matrix(tab_ML[,i]),main=names(tab_ML)[i],ylim=c(0,quantile(data.matrix(tab_ML[,i]),0.99)))
+hist(as.matrix(tab_ML[,i]),main=names(tab_ML)[i],
+     breaks=1000,xlab="",ylab="",xlim=c(0,quantile(data.matrix(tab_ML[,i]),0.99)))
+print(summary(tab_ML[,i]))
+par(mfrow=c(1,1))
+
+detach(tab_ML)
+
+rm(i,tab_ML)
+```
+
+# Visualisation sur l'ACP :
+
+## Chargement des données
+
+```{r}
+load("under_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_under,model_list_under_acp,model_names,test_acp,test_data,Erreur,x_under,x_under_acp,under_train,y_test)
+
+load("over_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_over,model_list_over_acp,model_names,test_acp,test_data,Erreur,y_test,x_over,x_over_acp,over_train)
+
+load("smote5_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_smote5,model_list_smote_acp5,model_names,test_acp,test_data,Erreur,y_test,x_smote,x_smote_acp,smote_train5)
+
+load("smote3_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_smote3,model_list_smote_acp3,model_names,test_acp,test_data,Erreur,y_test,x_smote,x_smote_acp,smote_train3)
+
+load("smote10_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_smote10,model_list_smote_acp10,model_names,test_acp,test_data,Erreur,y_test,x_smote,x_smote_acp,smote_train10)
+
+load("adasyn5_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_adasyn5,model_list_adasyn_acp5,model_names,test_acp,test_data,Erreur,y_test,x_adasyn,x_adasyn_acp,adasyn_train5)
+
+load("adasyn3_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_adasyn3,model_list_adasyn_acp3,model_names,test_acp,test_data,Erreur,y_test,x_adasyn,x_adasyn_acp,adasyn_train3)
+
+load("adasyn10_data.RData")
+rm(acp_test,acp_train,Control_acp,Control_data,data_train,X_test,folds_acp,folds_data,model_list_adasyn10,model_list_adasyn_acp10,model_names,test_acp,test_data,Erreur,y_test,x_adasyn,x_adasyn_acp,adasyn_train10)
+
+load("rose_data.RData")
+rm(Control_acp,Control_data,folds_acp,folds_data,model_list_rose,model_list_rose_acp,model_names,x_rose,x_rose_acp,test_acp,test_data,rose_train,X_test,Erreur,y_test,acp_test,acp_train,data_train)
+
+load("tl_data.RData")
+rm(Control_acp,Control_data,folds_acp,folds_data,model_list_tl,model_list_tl_acp,model_names,x_tl,x_tl_acp,test_acp,test_data,X_test,tl_train,Erreur,data_train)
+
+load("GAN_data.RData")
+```
+
+## Visualisation : 
+
+```{r}
+# Original Train :
+plot(acp_train$Dim.1,acp_train$Dim.2,xlim=c(-10,15),ylim=c(-10,20),col=ifelse(acp_train$top_sanction=="X1","red","black"),main="Répartition du train original")
+legend("topleft",col=c("red","black"),legend=c("Train True","Train False"),pch=1)
+
+# Test :  
+plot(acp_test$Dim.1,acp_test$Dim.2,xlim=c(-10,15),ylim=c(-10,20),col=ifelse(y_test=="X1","red","black"),main="Répartition du test")
+legend("topleft",col=c("red","black"),legend=c("Test True","Test False"),pch=1)
+
+# Train+Test : 
+plot(acp_train$Dim.1,acp_train$Dim.2,xlim=c(-10,15),ylim=c(-10,20),col=ifelse(acp_train$top_sanction=="X1","red","black"))
+points(acp_test$Dim.1,acp_test$Dim.2,col=ifelse(y_test=="X1","purple","turquoise"))
+legend("topleft",col=c("red","black","purple","turquoise"),legend=c("Train True","Train False","Test True","Test False"),pch=1)
+
+# Undersampling : 
+plot(under_acp$Dim.1,under_acp$Dim.2,xlim=c(-10,15),ylim=c(-10,20),col=ifelse(under_acp$top_sanction=="X1","red","black"),main="Répartition du train avec undersampling")
+legend("topleft",col=c("red","black"),legend=c("Train True","Train False"),pch=1)
+
+# Oversampling : 
+plot(over_acp$Dim.1,over_acp$Dim.2,xlim=c(-10,15),ylim=c(-10,20),col=ifelse(over_acp$top_sanction=="X1","red","black"),main="Répartition du train avec oversampling")
+legend("topleft",col=c("red","black"),legend=c("Train True","Train False"),pch=1)
+
+# SMOTE3 :
+x=smote_acp3
+x$top_sanction=as.numeric(x$top_sanction)
+x[(sum(acp_train=="X1")+sum(acp_train=="X0")+1):nrow(x),]$top_sanction=rep(3,nrow(x)-(sum(acp_train=="X1")+sum(acp_train=="X0")))
+
+plot(x$Dim.1,x$Dim.2,col=c(x$top_sanction),xlim=c(-10,15),ylim=c(-10,20),main="Répartition du train avec SMOTE (k=3)")
+legend("topleft",legend=c("Originale TRUE","Originale FALSE","Synthétique FALSE"),col=c("red","black","green"),pch=1)
+
+# SMOTE5 :
+x=smote_acp5
+x$top_sanction=as.numeric(x$top_sanction)
+x[(sum(acp_train=="X1")+sum(acp_train=="X0")+1):nrow(x),]$top_sanction=rep(3,nrow(x)-(sum(acp_train=="X1")+sum(acp_train=="X0")))
+
+plot(x$Dim.1,x$Dim.2,col=c(x$top_sanction),xlim=c(-10,15),ylim=c(-10,20),main="Répartition du train avec SMOTE (k=5)")
+legend("topleft",legend=c("Originale TRUE","Originale FALSE","Synthétique FALSE"),col=c("red","black","green"),pch=1)
+
+# SMOTE10 :
+x=smote_acp10
+x$top_sanction=as.numeric(x$top_sanction)
+x[(sum(acp_train=="X1")+sum(acp_train=="X0")+1):nrow(x),]$top_sanction=rep(3,nrow(x)-(sum(acp_train=="X1")+sum(acp_train=="X0")))
+
+plot(x$Dim.1,x$Dim.2,col=c(x$top_sanction),xlim=c(-10,15),ylim=c(-10,20),main="Répartition du train avec SMOTE (k=10)")
+legend("topleft",legend=c("Originale TRUE","Originale FALSE","Synthétique FALSE"),col=c("red","black","green"),pch=1)
+
+# ADASYN3 :
+x=adasyn_acp3
+x$top_sanction=as.numeric(x$top_sanction)
+x[(sum(acp_train=="X1")+sum(acp_train=="X0")+1):nrow(x),]$top_sanction=rep(3,nrow(x)-(sum(acp_train=="X1")+sum(acp_train=="X0")))
+
+plot(x$Dim.1,x$Dim.2,col=c(x$top_sanction),xlim=c(-10,15),ylim=c(-10,20),main="Répartition du train avec ADASYN (k=3)")
+legend("topleft",legend=c("Originale TRUE","Originale FALSE","Synthétique FALSE"),col=c("red","black","green"),pch=1)
+
+# ADASYN5 :
+x=adasyn_acp5
+x$top_sanction=as.numeric(x$top_sanction)
+x[(sum(acp_train=="X1")+sum(acp_train=="X0")+1):nrow(x),]$top_sanction=rep(3,nrow(x)-(sum(acp_train=="X1")+sum(acp_train=="X0")))
+
+plot(x$Dim.1,x$Dim.2,col=c(x$top_sanction),xlim=c(-10,15),ylim=c(-10,20),main="Répartition du train avec ADASYN (k=5)")
+legend("topleft",legend=c("Originale TRUE","Originale FALSE","Synthétique FALSE"),col=c("red","black","green"),pch=1)
+
+
+# ADASYN10 :
+x=adasyn_acp10
+x$top_sanction=as.numeric(x$top_sanction)
+x[(sum(acp_train=="X1")+sum(acp_train=="X0")+1):nrow(x),]$top_sanction=rep(3,nrow(x)-(sum(acp_train=="X1")+sum(acp_train=="X0")))
+
+plot(x$Dim.1,x$Dim.2,col=c(x$top_sanction),xlim=c(-10,15),ylim=c(-10,20),main="Répartition du train avec ADASYN (k=10)")
+legend("topleft",legend=c("Originale TRUE","Originale FALSE","Synthétique FALSE"),col=c("red","black","green"),pch=1)
+
+
+# ROSE :
+x=rose_acp
+x$top_sanction=as.numeric(x$top_sanction)
+x[(sum(acp_train=="X1")+sum(acp_train=="X0")+1):nrow(x),]$top_sanction=rep(3,nrow(x)-(sum(acp_train=="X1")+sum(acp_train=="X0")))
+
+plot(x$Dim.1,x$Dim.2,col=c(x$top_sanction),xlim=c(-10,15),ylim=c(-10,20),main="Répartition du train avec ROSE")
+legend("topleft",legend=c("Originale TRUE","Originale FALSE","Synthétique FALSE"),col=c("red","black","green"),pch=1)
+
+
+#Tomek Links : 
+plot(tl_acp$Dim.1,tl_acp$Dim.2,col=c(tl_acp$top_sanction),xlim=c(-10,15),ylim=c(-10,20),main="Répartition du train avec Tomek Links")
+legend("topleft",legend=c("TRUE","FALSE"),col=c("red","black"),pch=1)
+
+
+# GAN :
+x=rbind(acp_train,data.frame(synthetic_data_acp,top_sanction="X3"))
+x$top_sanction=as.numeric(x$top_sanction)
+
+plot(x$Dim.1,x$Dim.2,col=c(x$top_sanction),xlim=c(-10,15),ylim=c(-10,20),main="Répartition du train avec GAN")
+legend("topleft",legend=c("Originale TRUE","Originale FALSE","Synthétique FALSE"),col=c("red","black","green"),pch=1)
+
+rm(x)
+```
+
+## Pairplot des différentes variables : 
+
+```{r, fig.width=20, fig.height=20}
+# Original :
+pairs(acp_train,col=ifelse(acp_train$top_sanction=="X1","red","black"),horInd=1:7,verInd = 1:7,upper.panel = NULL)
+
+# Undersampling : 
+pairs(under_acp,col=ifelse(under_acp$top_sanction=="X1","red","black"),horInd=1:7,verInd = 1:7,upper.panel = NULL)
+
+# Oversampling
+pairs(over_acp,col=ifelse(over_acp$top_sanction=="X1","red","black"),horInd=1:7,verInd = 1:7,upper.panel = NULL)
+
+# SMOTE3 : 
+x=smote_acp3
+x$top_sanction=as.numeric(x$top_sanction)
+x[(sum(acp_train=="X1")+sum(acp_train=="X0")+1):nrow(x),]$top_sanction=rep(3,nrow(x)-(sum(acp_train=="X1")+sum(acp_train=="X0")))
+pairs(x,col=c(x$top_sanction),horInd=1:7,verInd = 1:7,upper.panel = NULL)
+
+# SMOTE5 : 
+x=smote_acp5
+x$top_sanction=as.numeric(x$top_sanction)
+x[(sum(acp_train=="X1")+sum(acp_train=="X0")+1):nrow(x),]$top_sanction=rep(3,nrow(x)-(sum(acp_train=="X1")+sum(acp_train=="X0")))
+pairs(x,col=c(x$top_sanction),horInd=1:7,verInd = 1:7,upper.panel = NULL)
+
+# SMOTE10 : 
+x=smote_acp10
+x$top_sanction=as.numeric(x$top_sanction)
+x[(sum(acp_train=="X1")+sum(acp_train=="X0")+1):nrow(x),]$top_sanction=rep(3,nrow(x)-(sum(acp_train=="X1")+sum(acp_train=="X0")))
+pairs(x,col=c(x$top_sanction),horInd=1:7,verInd = 1:7,upper.panel = NULL)
+
+# ADASYN3 : 
+x=adasyn_acp3
+x$top_sanction=as.numeric(x$top_sanction)
+x[(sum(acp_train=="X1")+sum(acp_train=="X0")+1):nrow(x),]$top_sanction=rep(3,nrow(x)-(sum(acp_train=="X1")+sum(acp_train=="X0")))
+pairs(x,col=c(x$top_sanction),horInd=1:7,verInd = 1:7,upper.panel = NULL)
+
+# ADASYN5 : 
+x=adasyn_acp5
+x$top_sanction=as.numeric(x$top_sanction)
+x[(sum(acp_train=="X1")+sum(acp_train=="X0")+1):nrow(x),]$top_sanction=rep(3,nrow(x)-(sum(acp_train=="X1")+sum(acp_train=="X0")))
+pairs(x,col=c(x$top_sanction),horInd=1:7,verInd = 1:7,upper.panel = NULL)
+
+# ADASYN10 : 
+x=adasyn_acp10
+x$top_sanction=as.numeric(x$top_sanction)
+x[(sum(acp_train=="X1")+sum(acp_train=="X0")+1):nrow(x),]$top_sanction=rep(3,nrow(x)-(sum(acp_train=="X1")+sum(acp_train=="X0")))
+pairs(x,col=c(x$top_sanction),horInd=1:7,verInd = 1:7,upper.panel = NULL)
+
+# ROSE : 
+x=rose_acp
+x$top_sanction=as.numeric(x$top_sanction)
+x[(sum(acp_train=="X1")+sum(acp_train=="X0")+1):nrow(x),]$top_sanction=rep(3,nrow(x)-(sum(acp_train=="X1")+sum(acp_train=="X0")))
+pairs(x,col=c(x$top_sanction),horInd=1:7,verInd = 1:7,upper.panel = NULL)
+
+# Tomek Links : 
+pairs(tl_acp,col=c(tl_acp$top_sanction),horInd=1:7,verInd = 1:7,upper.panel = NULL)
+
+# GAN : 
+x=rbind(acp_train,data.frame(synthetic_data_acp,top_sanction="X3"))
+x$top_sanction=as.numeric(x$top_sanction)
+pairs(x,col=c(x$top_sanction),horInd=1:7,verInd = 1:7,upper.panel = NULL)
+
+rm(x)
+```

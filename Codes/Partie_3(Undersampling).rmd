@@ -1,0 +1,494 @@
+---
+title: "Undersampling"
+author: "Loïc LAFFINEUR"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r library, include=FALSE}
+#Manipulation : 
+library(dplyr)
+
+#Modèles de ML :
+library(randomForest) #RF ;
+library(rpart) #CART ;
+library(xgboost) #XGBoost ;
+library(glmnet)
+library(class)
+library(naivebayes)
+library(ranger)
+library(kernlab)
+library(e1071) #Algo de ML
+
+#Autres pour ML :
+library(caret) #Split/Search/... ;
+library(caretEnsemble)
+
+library(MLmetrics) #Metriques d'évaluation
+library(ROSE)
+```
+
+```{r, mat_model_names}
+load("intro_data.RData")
+rm(tab_ML)
+model_names=c("Regression logistique","K_NN","Naive Bayes","SVM RBF","SVM Polynomial","CART","Ranger","RandomForest","XGBoost")
+```
+
+# Création de la table : 
+
+```{r, undersampling}
+#Undersampling et Oversampling : Je ne modifie QUE la composition du TRAIN !
+set.seed(12)
+
+under_train <- downSample(x = data_train[, -ncol(data_train)],
+                         y = data_train$top_sanction)
+colnames(under_train)[ncol(under_train)]=c("top_sanction")
+table(under_train$top_sanction)
+
+under_acp <- downSample(x = acp_train[, -ncol(acp_train)],
+                         y = acp_train$top_sanction)
+colnames(under_acp)[ncol(under_acp)]=c("top_sanction")
+```
+
+```{r, procedure pour CV}
+under_train$nb_phies=as.numeric(under_train$nb_phies)
+under_train$active_tout2018_1=as.numeric(under_train$active_tout2018_1)-1
+under_train$top_sanction=as.factor(make.names(under_train$top_sanction))
+
+under_acp$top_sanction=as.factor(make.names(under_acp$top_sanction))
+
+X_test$active_tout2018_1=as.numeric(X_test$active_tout2018_1)-1
+y_test=as.factor(make.names(y_test))
+
+#Création de la base de donnée en bonne forme : 
+#Train : 
+x_under=data.matrix(under_train[,-ncol(under_train)])
+x_under_acp=data.matrix(under_acp[,-ncol(under_acp)])
+
+#Test : 
+test_data=data.matrix(X_test); test_data[,1]=test_data[,1]-1
+test_acp=data.matrix(acp_test)
+
+#Nos folds pour la CV :
+set.seed(12)
+folds_data=createFolds(under_train$top_sanction,k=5)
+folds_acp=createFolds(under_acp$top_sanction,k=5)
+
+#Règle de CV : 
+Control_data <- trainControl(method = "cv", number = 5, index=folds_data, search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F)
+
+Control_acp <- trainControl(method = "cv", number = 5, index=folds_acp, search='random',
+                           classProbs = T, #Pour mes metrics AUC Sensi et Spé
+                           summaryFunction = twoClassSummary, verboseIter = F)
+```
+
+```{r, entrainement des modèles avec CV,warning=F}
+set.seed(12)
+#Liste des modèles :
+start_time=Sys.time()
+model_list_under <- caretList(trControl = Control_data, 
+                        tuneList = list(
+                          glm=caretModelSpec(x=x_under, y=under_train$top_sanction,
+                                             method="glmnet", tuneLength=300,
+                                             metric="ROC"),
+                          knn=caretModelSpec(x=x_under, y=under_train$top_sanction,
+                                             method="knn", tuneLength=300,
+                                             metric="ROC"), 
+                          naive_bayes=caretModelSpec(x=x_under, y=under_train$top_sanction,
+                                             method="naive_bayes", tuneLength=300,
+                                             metric="ROC"),
+                          svm_rad=caretModelSpec(x=x_under, y=under_train$top_sanction,
+                                             method="svmRadial", tuneLength=300,
+                                             metric="ROC"),
+                          svm_poly=caretModelSpec(x=x_under, y=under_train$top_sanction,
+                                             method="svmPoly", tuneLength=300,
+                                             metric="ROC"),
+                          rpart=caretModelSpec(x=x_under, y=under_train$top_sanction,
+                                             method="rpart2", tuneLength=300,
+                                             metric="ROC"),
+                          ranger=caretModelSpec(x=x_under, y=under_train$top_sanction,
+                                             method="ranger", tuneLength=500,
+                                             metric="ROC",verbose=F),
+                          rf=caretModelSpec(x=x_under, y=under_train$top_sanction,
+                                             method="rf", tuneLength=500,
+                                             metric="ROC"),
+                          xgbTree=caretModelSpec(x=x_under, y=under_train$top_sanction,
+                                             method="xgbTree", tuneLength=500,
+                                             metric="ROC",verbosity=0)
+                          ),
+                        continue_on_fail = FALSE, preProcess = c("center", "scale","nzv"))
+end_time=Sys.time()
+end_time-start_time #Time difference of 35.68448 mins
+
+
+#Liste des modèles :
+set.seed(12)
+start_time=Sys.time()
+model_list_under_acp <- caretList(trControl = Control_acp, 
+                        tuneList = list(
+                          glm=caretModelSpec(x=x_under_acp, y=under_acp$top_sanction,
+                                             method="glmnet", tuneLength=300,
+                                             metric="ROC"),
+                          knn=caretModelSpec(x=x_under_acp, y=under_acp$top_sanction,
+                                             method="knn", tuneLength=300,
+                                             metric="ROC"), 
+                          naive_bayes=caretModelSpec(x=x_under_acp, y=under_acp$top_sanction,
+                                             method="naive_bayes", tuneLength=300,
+                                             metric="ROC"),
+                          svm_rad=caretModelSpec(x=x_under_acp, y=under_acp$top_sanction,
+                                             method="svmRadial", tuneLength=300,
+                                             metric="ROC"),
+                          svm_poly=caretModelSpec(x=x_under_acp, y=under_acp$top_sanction,
+                                             method="svmPoly", tuneLength=300,
+                                             metric="ROC"),
+                          rpart=caretModelSpec(x=x_under_acp, y=under_acp$top_sanction,
+                                             method="rpart2", tuneLength=300,
+                                             metric="ROC"),
+                          ranger=caretModelSpec(x=x_under_acp, y=under_acp$top_sanction,
+                                             method="ranger", tuneLength=500,
+                                             metric="ROC",verbose=F),
+                          rf=caretModelSpec(x=x_under_acp, y=under_acp$top_sanction,
+                                             method="rf", tuneLength=500,
+                                             metric="ROC"),
+                          xgbTree=caretModelSpec(x=x_under_acp, y=under_acp$top_sanction,
+                                             method="xgbTree", tuneLength=500,
+                                             metric="ROC")
+                          ),
+                        continue_on_fail = FALSE, preProcess = c("center", "scale","nzv"))
+end_time=Sys.time()
+end_time-start_time #Time difference of 30.82288 mins
+
+rm(end_time,start_time)
+```
+
+# Régression Logistique :
+
+```{r}
+Erreur(predict(model_list_under$glm,x_under),under_train$top_sanction)
+Erreur(predict(model_list_under$glm,test_data),y_test)
+Erreur(predict(model_list_under_acp$glm,x_under_acp),under_acp$top_sanction)
+Erreur(predict(model_list_under_acp$glm,test_acp),y_test)
+```
+
+Comme pour les deux parties précédentes nous un fort underfitting dans nos données qui résulte surement du manque d'information apporté par nos variables. Les modèles n'ont pas assez d'information discriminante pour trouver une relation qui sépare nos deux classes.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(under_train$top_sanction,predict(model_list_under$glm,x_under),col=col[1],main="ROC Curve régression logistique")
+roc.curve(y_test,predict(model_list_under$glm,test_data),add.roc = T,col=col[2])
+roc.curve(under_acp$top_sanction,predict(model_list_under_acp$glm,x_under_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_under_acp$glm,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r}
+### Importance des variables : 
+barplot(as.matrix(varImp(model_list_under$glm)$importance)[,1],las=2,col=rainbow(ncol(under_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_under_acp$glm)$importance)[,1],las=2,col=rainbow(ncol(under_acp)),main="Importance des variables (Avec ACP)")
+```
+
+# k-NN :
+
+```{r}
+Erreur(predict(model_list_under$knn,x_under),under_train$top_sanction)
+Erreur(predict(model_list_under$knn,test_data),y_test)
+Erreur(predict(model_list_under_acp$knn,x_under_acp),under_acp$top_sanction)
+Erreur(predict(model_list_under_acp$knn,test_acp),y_test)
+```
+
+Gros underfitting avec de très mauvais résultats de prédiction sur la classe X0.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(under_train$top_sanction,predict(model_list_under$knn,x_under),col=col[1],main="ROC Curve k-NN")
+roc.curve(y_test,predict(model_list_under$knn,test_data),add.roc = T,col=col[2])
+roc.curve(under_acp$top_sanction,predict(model_list_under_acp$knn,x_under_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_under_acp$knn,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+# Importance des variables :
+barplot(as.matrix(varImp(model_list_under$knn)$importance)[,1],las=2,col=rainbow(ncol(under_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_under_acp$knn)$importance)[,1],las=2,col=rainbow(ncol(under_acp)),main="Importance des variables (Avec ACP)")
+```
+
+# Naive Bayes :
+
+```{r}
+Erreur(predict(model_list_under$naive_bayes,x_under),under_train$top_sanction)
+Erreur(predict(model_list_under$naive_bayes,test_data),y_test)
+Erreur(predict(model_list_under_acp$naive_bayes,x_under_acp),under_acp$top_sanction)
+Erreur(predict(model_list_under_acp$naive_bayes,test_acp),y_test)
+```
+
+Underfitting. 
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(under_train$top_sanction,predict(model_list_under$naive_bayes,x_under),col=col[1],main="ROC Curve Naive Bayes")
+roc.curve(y_test,predict(model_list_under$naive_bayes,test_data),add.roc = T,col=col[2])
+roc.curve(under_acp$top_sanction,predict(model_list_under_acp$naive_bayes,x_under_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_under_acp$naive_bayes,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_under$naive_bayes)$importance)[,1],las=2,col=rainbow(ncol(under_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_under_acp$naive_bayes)$importance)[,1],las=2,col=rainbow(ncol(under_acp)),main="Importance des variables (Avec ACP)")
+```
+
+# SVM : 
+
+## RBF : 
+
+```{r}
+Erreur(predict(model_list_under$svm_rad,x_under),under_train$top_sanction)
+Erreur(predict(model_list_under$svm_rad,test_data),y_test)
+Erreur(predict(model_list_under_acp$svm_rad,x_under_acp),under_acp$top_sanction)
+Erreur(predict(model_list_under_acp$svm_rad,test_acp),y_test)
+```
+
+Le modèle de SVM RBF sans ACP donne des résultats intéressants ou en tout cas une matrice de confusion ressemblant presque à ce qu'on aimerait (diagonal dominante). Avec l'ACP les résultats sont bien moins bons au niveau de la matrice de confusion et de la reussite sur la classe X0 (qui est en dessous de 50%).
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(under_train$top_sanction,predict(model_list_under$svm_rad,x_under),col=col[1],main="ROC Curve SVM avec noyau RBF")
+roc.curve(y_test,predict(model_list_under$svm_rad,test_data),add.roc = T,col=col[2])
+roc.curve(under_acp$top_sanction,predict(model_list_under_acp$svm_rad,x_under_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_under_acp$svm_rad,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_under$svm_rad)$importance)[,1],las=2,col=rainbow(ncol(under_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_under_acp$svm_rad)$importance)[,1],las=2,col=rainbow(ncol(under_acp)),main="Importance des variables (Avec ACP)")
+```
+
+## Polynomial : 
+
+```{r}
+Erreur(predict(model_list_under$svm_poly,x_under),under_train$top_sanction)
+Erreur(predict(model_list_under$svm_poly,test_data),y_test)
+Erreur(predict(model_list_under_acp$svm_poly,x_under_acp),under_acp$top_sanction)
+Erreur(predict(model_list_under_acp$svm_poly,test_acp),y_test)
+```
+
+Comme pour notre modèle de SVM RBF notre SVM Polynomial obtient presque une matrice de confusion d'une forme qui nous interesse (sans ACP) les capacités de notre modèle sur la table avec ACP sont en dessous.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(under_train$top_sanction,predict(model_list_under$svm_poly,x_under),col=col[1],main="ROC Curve SVM avec noyau Polynomial")
+roc.curve(y_test,predict(model_list_under$svm_poly,test_data),add.roc = T,col=col[2])
+roc.curve(under_acp$top_sanction,predict(model_list_under_acp$svm_poly,x_under_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_under_acp$svm_poly,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_under$svm_poly)$importance)[,1],las=2,col=rainbow(ncol(under_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_under_acp$svm_poly)$importance)[,1],las=2,col=rainbow(ncol(under_acp)),main="Importance des variables (Avec ACP)")
+```
+
+# Decision Tree :
+
+```{r}
+Erreur(predict(model_list_under$rpart,x_under),under_train$top_sanction)
+Erreur(predict(model_list_under$rpart,test_data),y_test)
+Erreur(predict(model_list_under_acp$rpart,x_under_acp),under_acp$top_sanction)
+Erreur(predict(model_list_under_acp$rpart,test_acp),y_test)
+```
+
+Notre CART overfit et underfit en même temps en ayant des résultats sur le train avec une bonne matrice de confusion, un bon F1-score et un $AUC_{ROC}$ desirable mais des résultats en test 10% en dessous. Avec en plus de cela des résultats pas non plus incroyable en train ce qui montre qu'ils ont du mal à apprendre nos classes.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(under_train$top_sanction,predict(model_list_under$rpart,x_under),col=col[1],main="ROC Curve CART")
+roc.curve(y_test,predict(model_list_under$rpart,test_data),add.roc = T,col=col[2])
+roc.curve(under_acp$top_sanction,predict(model_list_under_acp$rpart,x_under_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_under_acp$rpart,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, plot_tree, fig.height=8}
+plot(model_list_under$rpart$finalModel,uniform=T)
+text(model_list_under$rpart$finalModel)
+
+plot(model_list_under_acp$rpart$finalModel,uniform=T)
+text(model_list_under_acp$rpart$finalModel)
+```
+
+```{r, importance_tree}
+barplot(as.matrix(varImp(model_list_under$rpart)$importance)[,1],las=2,col=rainbow(ncol(under_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_under_acp$rpart)$importance)[,1],las=2,col=rainbow(ncol(under_acp)),main="Importance des variables (Avec ACP)")
+```
+
+# Random Forest : 
+
+## randomForest : 
+
+```{r}
+Erreur(predict(model_list_under$rf,x_under),under_train$top_sanction)
+Erreur(predict(model_list_under$rf,test_data),y_test)
+Erreur(predict(model_list_under_acp$rf,x_under_acp),under_acp$top_sanction)
+Erreur(predict(model_list_under_acp$rf,test_acp),y_test)
+```
+
+Comme pour tous nos autres modèles d'aggregation d'arbre depuis le debut nos randomForest sur-apprennent et ont une très grosse différence de résultat entre le train et le test mais ici contrairement à avant notre randomForest sans ACP a une matrice de confusion à diagonal dominante, la classe X0 est très mal prédite (0.5 de précision) mais c'est déjà une bonne chose et l'$AUC_{ROC}$ est plutot bon comparé à ce qu'on a eu depuis le début.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(under_train$top_sanction,predict(model_list_under$rf,x_under),col=col[1],main="ROC Curve avec randomForest")
+roc.curve(y_test,predict(model_list_under$rf,test_data),add.roc = T,col=col[2])
+roc.curve(under_acp$top_sanction,predict(model_list_under_acp$rf,x_under_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_under_acp$rf,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_under$rf)$importance)[,1],las=2,col=rainbow(ncol(under_train)),main="Importance des variables (Sans ACP)")
+
+barplot(as.matrix(varImp(model_list_under_acp$rf)$importance)[,1],las=2,col=rainbow(ncol(under_acp)),main="Importance des variables (Avec ACP)")
+```
+
+## Ranger : 
+
+```{r}
+Erreur(predict(model_list_under$ranger,x_under),under_train$top_sanction)
+Erreur(predict(model_list_under$ranger,test_data),y_test)
+Erreur(predict(model_list_under_acp$ranger,x_under_acp),under_acp$top_sanction)
+Erreur(predict(model_list_under_acp$ranger,test_acp),y_test)
+```
+
+Overfitting, les résultats ne sont pas trop mauvais sur la table sans acp.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(under_train$top_sanction,predict(model_list_under$ranger,x_under),col=col[1],main="ROC Curve avec Ranger")
+roc.curve(y_test,predict(model_list_under$ranger,test_data),add.roc = T,col=col[2])
+roc.curve(under_acp$top_sanction,predict(model_list_under_acp$ranger,x_under_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_under_acp$ranger,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+# #Importance des variables
+# barplot(as.matrix(varImp(model_list_under$ranger)$importance)[,1],las=2,col=rainbow(ncol(under_train)),main="Importance des variables (Sans ACP)")
+# 
+# barplot(as.matrix(varImp(model_list_under_acp$ranger)$importance)[,1],las=2,col=rainbow(ncol(under_acp)),main="Importance des variables (Avec ACP)")
+```
+
+# XGBoost :
+
+```{r}
+Erreur(predict(model_list_under$xgbTree,x_under),under_train$top_sanction)
+Erreur(predict(model_list_under$xgbTree,test_data),y_test)
+Erreur(predict(model_list_under_acp$xgbTree,x_under_acp),under_acp$top_sanction)
+Erreur(predict(model_list_under_acp$xgbTree,test_acp),y_test)
+```
+
+Sur-apprentissage, mais bonne matrice de confusion, AUC assez bon et F1-score aussi.
+
+```{r, etude des résultats}
+col=rainbow(4)
+roc.curve(under_train$top_sanction,predict(model_list_under$xgbTree,x_under),col=col[1],main="ROC Curve XGBoost")
+roc.curve(y_test,predict(model_list_under$xgbTree,test_data),add.roc = T,col=col[2])
+roc.curve(under_acp$top_sanction,predict(model_list_under_acp$xgbTree,x_under_acp),add.roc = T,col=col[3])
+roc.curve(y_test,predict(model_list_under_acp$xgbTree,test_acp),add.roc = T,col=col[4])
+legend('bottomright',legend=c("Train sans ACP","Test sans ACP","Train avec ACP","Test avec ACP"),lwd=2,col=col)
+rm(col)
+```
+
+```{r, importance}
+#Importance des variables
+barplot(as.matrix(varImp(model_list_under$xgbTree)$importance)[,1],las=2,col=rainbow(ncol(under_train)),main="Importance des variables (Sans ACP)")
+barplot(as.matrix(varImp(model_list_under_acp$xgbTree)$importance)[,1],las=2,col=rainbow(ncol(under_acp)),main="Importance des variables (Avec ACP)")
+```
+
+# Comparaison des modèles entre eux : 
+
+```{r, prediction sur le test}
+print("Sans ACP : ")
+print(model_names[1])
+Erreur(predict(model_list_under$glm,test_data),y_test)
+print(model_names[2])
+Erreur(predict(model_list_under$knn,test_data),y_test)
+print(model_names[3])
+Erreur(predict(model_list_under$naive_bayes,test_data),y_test)
+print(model_names[4])
+Erreur(predict(model_list_under$svm_rad,test_data),y_test)
+print(model_names[5])
+Erreur(predict(model_list_under$svm_poly,test_data),y_test)
+print(model_names[6])
+Erreur(predict(model_list_under$rpart,test_data),y_test)
+print(model_names[7])
+Erreur(predict(model_list_under$ranger,test_data),y_test)
+print(model_names[8])
+Erreur(predict(model_list_under$rf,test_data),y_test)
+print(model_names[9])
+Erreur(predict(model_list_under$xgbTree,test_data),y_test)
+
+col=rainbow(9)
+roc.curve(y_test,predict(model_list_under$glm,test_data),col=col[1],main="ROC Curve")
+roc.curve(y_test,predict(model_list_under$knn,test_data),col=col[2],add.roc = T)
+roc.curve(y_test,predict(model_list_under$naive_bayes,test_data),col=col[3],add.roc = T)
+roc.curve(y_test,predict(model_list_under$svm_rad,test_data),col=col[4],add.roc = T)
+roc.curve(y_test,predict(model_list_under$svm_poly,test_data),col=col[5],add.roc = T)
+roc.curve(y_test,predict(model_list_under$rpart,test_data),col=col[6],add.roc = T)
+roc.curve(y_test,predict(model_list_under$ranger,test_data),col=col[7],add.roc = T)
+roc.curve(y_test,predict(model_list_under$rf,test_data),col=col[8],add.roc = T)
+roc.curve(y_test,predict(model_list_under$xgbTree,test_data),col=col[9],add.roc = T)
+legend('bottomright',legend=model_names,col=col,lwd=2)
+
+for(i in 1:5){print("")}
+
+print("ACP : ")
+print(model_names[1])
+Erreur(predict(model_list_under_acp$glm,test_acp),y_test)
+print(model_names[2])
+Erreur(predict(model_list_under_acp$knn,test_acp),y_test)
+print(model_names[3])
+Erreur(predict(model_list_under_acp$naive_bayes,test_acp),y_test)
+print(model_names[4])
+Erreur(predict(model_list_under_acp$svm_rad,test_acp),y_test)
+print(model_names[5])
+Erreur(predict(model_list_under_acp$svm_poly,test_acp),y_test)
+print(model_names[6])
+Erreur(predict(model_list_under_acp$rpart,test_acp),y_test)
+print(model_names[7])
+Erreur(predict(model_list_under_acp$ranger,test_acp),y_test)
+print(model_names[8])
+Erreur(predict(model_list_under_acp$rf,test_acp),y_test)
+print(model_names[9])
+Erreur(predict(model_list_under_acp$xgbTree,test_acp),y_test)
+
+roc.curve(y_test,predict(model_list_under_acp$glm,test_acp),col=col[1],main="ROC Curve avec ACP")
+roc.curve(y_test,predict(model_list_under_acp$knn,test_acp),col=col[2],add.roc = T)
+roc.curve(y_test,predict(model_list_under_acp$naive_bayes,test_acp),col=col[3],add.roc = T)
+roc.curve(y_test,predict(model_list_under_acp$svm_rad,test_acp),col=col[4],add.roc = T)
+roc.curve(y_test,predict(model_list_under_acp$svm_poly,test_acp),col=col[5],add.roc = T)
+roc.curve(y_test,predict(model_list_under_acp$rpart,test_acp),col=col[6],add.roc = T)
+roc.curve(y_test,predict(model_list_under_acp$ranger,test_acp),col=col[7],add.roc = T)
+roc.curve(y_test,predict(model_list_under_acp$rf,test_acp),col=col[8],add.roc = T)
+roc.curve(y_test,predict(model_list_under_acp$xgbTree,test_acp),col=col[9],add.roc = T)
+legend('bottomright',legend=model_names,col=col,lwd=2)
+
+rm(col,i)
+```
